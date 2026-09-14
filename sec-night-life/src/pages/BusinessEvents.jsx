@@ -22,6 +22,7 @@ import { tierFeeTogglesFromTier, resolveTierFeesForSave } from '@/lib/tierBookin
 import { tierMinSpendsFromApi, resolveTierMinSpends } from '@/lib/tierMinSpend';
 import TierIncludedItemsEditor from '@/components/business/TierIncludedItemsEditor';
 import FeedBoostDialog, { maxBoostDaysUntil } from '@/components/business/FeedBoostDialog';
+import EventPurchaseLogDialog from '@/components/business/EventPurchaseLogDialog';
 import { isEventEnded } from '@/lib/eventLifecycle';
 import PageBackHeader from '@/components/layout/PageBackHeader';
 import { useActiveVenue } from '@/context/ActiveVenueContext';
@@ -155,6 +156,7 @@ export default function BusinessEvents() {
   const [boostEvent, setBoostEvent] = useState(null);
   const [boostBusy, setBoostBusy] = useState(false);
   const [downloadingEventId, setDownloadingEventId] = useState(null);
+  const [purchaseLog, setPurchaseLog] = useState(null);
 
   const coverCrop = useImageCropUpload({
     onCropped: async (file) => {
@@ -349,22 +351,11 @@ export default function BusinessEvents() {
       const data = await apiGet(`/api/business/events/${encodeURIComponent(evt.id)}/purchase-log${qs}`, {
         timeoutMs: 60_000,
       });
-      const xls = typeof data?.xls === 'string' && data.xls.trim() ? data.xls : null;
-      const csv = typeof data?.csv === 'string' && data.csv.trim() ? data.csv : null;
-      if (!xls && !csv) throw new Error('Could not build spreadsheet');
-      const filename = data.filename || `purchase-log-${evt.id}.xls`;
-      const blob = xls
-        ? new Blob([xls], { type: 'application/vnd.ms-excel' })
-        : new Blob([csv], { type: 'text/csv;charset=utf-8' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = filename;
-      a.click();
-      URL.revokeObjectURL(url);
+      if (!data?.groups && !data?.xlsxBase64) throw new Error('Could not build purchase log');
+      setPurchaseLog(data);
       const n = Number(data.rowCount) || 0;
-      if (n === 0) toast.success('No purchases yet — downloaded a blank log');
-      else toast.success(`Downloaded purchase log (${n} ${n === 1 ? 'purchase' : 'purchases'})`);
+      if (n === 0) toast.success('Opened purchase log — no purchases yet');
+      else toast.success(`Opened purchase log (${n} ${n === 1 ? 'purchase' : 'purchases'})`);
     } catch (err) {
       toast.error(err?.data?.error || err?.message || 'Could not download purchase log');
     } finally {
@@ -845,7 +836,7 @@ export default function BusinessEvents() {
                       color: 'var(--sec-text-muted)',
                       opacity: downloadingEventId && downloadingEventId !== evt.id ? 0.5 : 1,
                     }}
-                    title="Download purchase log"
+                    title="View purchase log"
                   >
                     {downloadingEventId === evt.id ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />}
                   </button>
@@ -2128,6 +2119,13 @@ export default function BusinessEvents() {
             setBoostBusy(false);
           }
         }}
+      />
+      <EventPurchaseLogDialog
+        open={Boolean(purchaseLog)}
+        onOpenChange={(open) => {
+          if (!open) setPurchaseLog(null);
+        }}
+        data={purchaseLog}
       />
       </div>
     </div>

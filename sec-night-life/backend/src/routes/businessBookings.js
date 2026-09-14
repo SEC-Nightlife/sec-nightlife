@@ -3583,9 +3583,12 @@ router.get('/events/:eventId/purchase-log', authenticateToken, async (req, res, 
     const log = await buildEventPurchaseLog(event);
     res.json({
       filename: log.filename,
-      csv: log.csv,
-      xls: log.xls,
-      rowCount: log.rows.length,
+      xlsxBase64: log.xlsxBase64,
+      rowCount: log.rowCount,
+      eventTitle: log.eventTitle,
+      eventDate: log.eventDate,
+      totalZar: log.totalZar,
+      groups: log.groups,
     });
   } catch (e) {
     next(e);

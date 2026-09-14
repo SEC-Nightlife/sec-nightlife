@@ -95,7 +95,7 @@ export function purchaseLogFilename(event) {
     date = /^\d{4}-\d{2}-\d{2}/.test(raw) ? raw.slice(0, 10) : formatYmdSast(new Date(event.date));
   }
   if (!date) date = formatYmdSast(new Date());
-  return `purchase-log-${title}-${date}.xls`;
+  return `purchase-log-${title}-${date}.xlsx`;
 }
 
 export function formatEventDateLabel(date) {
@@ -122,128 +122,44 @@ export function formatEventDateLabel(date) {
   });
 }
 
-function escapeXml(value) {
-  return String(value ?? '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
-}
-
-function xmlStringCell(value, styleId, mergeAcross = 0) {
-  const merge = mergeAcross > 0 ? ` ss:MergeAcross="${mergeAcross}"` : '';
-  const style = styleId ? ` ss:StyleID="${styleId}"` : '';
-  return `<Cell${style}${merge}><Data ss:Type="String">${escapeXml(value)}</Data></Cell>`;
-}
-
-function xmlNumberCell(value, styleId = 'Money') {
-  const n = moneyZar(value);
-  return `<Cell ss:StyleID="${styleId}"><Data ss:Type="Number">${n}</Data></Cell>`;
-}
-
-const EXCEL_COLUMNS = [
-  { key: 'Guest name', width: 140 },
-  { key: 'Email', width: 200 },
-  { key: 'Type', width: 92 },
-  { key: 'What they paid for', width: 280 },
-  { key: 'Amount (ZAR)', width: 92, number: true },
-  { key: 'Paid at', width: 110 },
-  { key: 'Table', width: 180 },
-  { key: 'Payment reference', width: 170 },
-  { key: 'Status', width: 80 },
+export const PURCHASE_LOG_GROUP_ORDER = [
+  { type: 'Ticket', title: 'Tickets' },
+  { type: 'Entrance', title: 'Entrance' },
+  { type: 'Table host', title: 'Table hosts' },
+  { type: 'Table guest', title: 'Table guests' },
+  { type: 'Table menu', title: 'Menu orders' },
 ];
 
-/**
- * Excel 2003 SpreadsheetML — opens with real columns, header bar, freeze, and filters.
- */
-export function rowsToExcelXml({ eventTitle, eventDate, rows = [] } = {}) {
-  const title = eventTitle || 'Event';
-  const dateLabel = formatEventDateLabel(eventDate);
-  const total = (rows || []).reduce((sum, row) => sum + moneyZar(row['Amount (ZAR)']), 0);
-  const count = rows.length;
-  const summary = [
-    dateLabel,
-    `${count} ${count === 1 ? 'purchase' : 'purchases'}`,
-    `Total R${formatZarLabel(total)}`,
-  ]
-    .filter(Boolean)
-    .join('  ·  ');
-
-  const colXml = EXCEL_COLUMNS.map((c) => `<Column ss:AutoFitWidth="0" ss:Width="${c.width}"/>`).join('');
-  const headerXml = `<Row ss:Height="22">${EXCEL_COLUMNS.map((c) => xmlStringCell(c.key, 'Header')).join('')}</Row>`;
-
-  const dataXml = (rows || []).map((row, idx) => {
-    const zebra = idx % 2 === 1 ? 'Alt' : 'Data';
-    const cells = EXCEL_COLUMNS.map((c) => {
-      if (c.number) return xmlNumberCell(row[c.key], 'Money');
-      const style =
-        c.key === 'Status'
-          ? row[c.key] === 'Paid'
-            ? 'Paid'
-            : row[c.key] === 'Refunded'
-              ? 'Refunded'
-              : 'Unpaid'
-          : zebra;
-      return xmlStringCell(row[c.key] ?? '', style);
-    }).join('');
-    return `<Row ss:Height="18">${cells}</Row>`;
-  });
-
-  if (!dataXml.length) {
-    dataXml.push(
-      `<Row ss:Height="18">${xmlStringCell('No purchases recorded for this event.', 'Muted', EXCEL_COLUMNS.length - 1)}</Row>`,
-    );
+export function groupPurchaseLogRows(rows = []) {
+  const byType = new Map();
+  for (const row of rows) {
+    const type = row.Type || 'Other';
+    if (!byType.has(type)) byType.set(type, []);
+    byType.get(type).push(row);
   }
-
-  const lastDataRow = 4 + Math.max(rows.length, 1);
-  const totalRow = `<Row ss:Height="20">${xmlStringCell('Total', 'TotalLabel', 3)}${xmlNumberCell(total, 'TotalMoney')}${xmlStringCell('', 'Total')}${xmlStringCell('', 'Total')}${xmlStringCell('', 'Total')}${xmlStringCell('', 'Total')}</Row>`;
-
-  return `<?xml version="1.0" encoding="UTF-8"?>
-<?mso-application progid="Excel.Sheet"?>
-<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"
- xmlns:o="urn:schemas-microsoft-com:office:office"
- xmlns:x="urn:schemas-microsoft-com:office:excel"
- xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">
- <Styles>
-  <Style ss:ID="Default" ss:Name="Normal"><Font ss:FontName="Calibri" ss:Size="11" ss:Color="#1A1A1A"/><Alignment ss:Vertical="Center" ss:WrapText="1"/></Style>
-  <Style ss:ID="Title"><Font ss:FontName="Calibri" ss:Size="16" ss:Bold="1" ss:Color="#111111"/><Alignment ss:Vertical="Center"/></Style>
-  <Style ss:ID="Subtitle"><Font ss:FontName="Calibri" ss:Size="11" ss:Color="#555555"/><Alignment ss:Vertical="Center"/></Style>
-  <Style ss:ID="Header"><Font ss:FontName="Calibri" ss:Size="11" ss:Bold="1" ss:Color="#FFFFFF"/><Interior ss:Color="#1C1C1C" ss:Pattern="Solid"/><Alignment ss:Vertical="Center" ss:WrapText="1"/><Borders><Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#C9A227"/></Borders></Style>
-  <Style ss:ID="Data"><Font ss:FontName="Calibri" ss:Size="11" ss:Color="#1A1A1A"/><Alignment ss:Vertical="Center" ss:WrapText="1"/></Style>
-  <Style ss:ID="Alt"><Font ss:FontName="Calibri" ss:Size="11" ss:Color="#1A1A1A"/><Interior ss:Color="#F6F4EF" ss:Pattern="Solid"/><Alignment ss:Vertical="Center" ss:WrapText="1"/></Style>
-  <Style ss:ID="Money"><NumberFormat ss:Format="#,##0.00"/><Alignment ss:Horizontal="Right" ss:Vertical="Center"/></Style>
-  <Style ss:ID="Paid"><Font ss:FontName="Calibri" ss:Size="11" ss:Color="#1F7A3A"/><Alignment ss:Vertical="Center"/></Style>
-  <Style ss:ID="Refunded"><Font ss:FontName="Calibri" ss:Size="11" ss:Color="#B42318"/><Alignment ss:Vertical="Center"/></Style>
-  <Style ss:ID="Unpaid"><Font ss:FontName="Calibri" ss:Size="11" ss:Color="#7A5C00"/><Alignment ss:Vertical="Center"/></Style>
-  <Style ss:ID="Muted"><Font ss:FontName="Calibri" ss:Size="11" ss:Color="#777777" ss:Italic="1"/><Alignment ss:Vertical="Center"/></Style>
-  <Style ss:ID="Total"><Font ss:FontName="Calibri" ss:Size="11" ss:Bold="1"/><Interior ss:Color="#EEE8D5" ss:Pattern="Solid"/><Alignment ss:Vertical="Center"/></Style>
-  <Style ss:ID="TotalLabel"><Font ss:FontName="Calibri" ss:Size="11" ss:Bold="1"/><Interior ss:Color="#EEE8D5" ss:Pattern="Solid"/><Alignment ss:Vertical="Center"/></Style>
-  <Style ss:ID="TotalMoney"><Font ss:FontName="Calibri" ss:Size="11" ss:Bold="1"/><NumberFormat ss:Format="&quot;R&quot;#,##0.00"/><Interior ss:Color="#EEE8D5" ss:Pattern="Solid"/><Alignment ss:Horizontal="Right" ss:Vertical="Center"/></Style>
- </Styles>
- <Worksheet ss:Name="Purchase log">
-  <Names>
-   <NamedRange ss:Name="_FilterDatabase" ss:RefersTo="='Purchase log'!R4C1:R${lastDataRow}C${EXCEL_COLUMNS.length}" ss:Hidden="1"/>
-  </Names>
-  <Table ss:ExpandedColumnCount="${EXCEL_COLUMNS.length}" ss:ExpandedRowCount="${lastDataRow + 1}" x:FullColumns="1" x:FullRows="1">
-   ${colXml}
-   <Row ss:Height="28">${xmlStringCell(`Purchase log — ${title}`, 'Title', EXCEL_COLUMNS.length - 1)}</Row>
-   <Row ss:Height="20">${xmlStringCell(summary || 'SEC Nightlife', 'Subtitle', EXCEL_COLUMNS.length - 1)}</Row>
-   <Row ss:Height="10">${xmlStringCell('', 'Data', EXCEL_COLUMNS.length - 1)}</Row>
-   ${headerXml}
-   ${dataXml.join('\n   ')}
-   ${totalRow}
-  </Table>
-  <AutoFilter x:Range="R4C1:R${lastDataRow}C${EXCEL_COLUMNS.length}" xmlns="urn:schemas-microsoft-com:office:excel"/>
-  <WorksheetOptions xmlns="urn:schemas-microsoft-com:office:excel">
-   <FreezePanes/>
-   <FrozenNoSplit/>
-   <SplitHorizontal>4</SplitHorizontal>
-   <TopRowBottomPane>4</TopRowBottomPane>
-   <ActivePane>2</ActivePane>
-  </WorksheetOptions>
- </Worksheet>
-</Workbook>
-`;
+  const groups = [];
+  for (const spec of PURCHASE_LOG_GROUP_ORDER) {
+    const items = byType.get(spec.type);
+    if (!items?.length) continue;
+    groups.push({
+      type: spec.type,
+      title: spec.title,
+      rows: items,
+      count: items.length,
+      subtotal: items.reduce((sum, row) => sum + moneyZar(row['Amount (ZAR)']), 0),
+    });
+    byType.delete(spec.type);
+  }
+  for (const [type, items] of byType) {
+    groups.push({
+      type,
+      title: type,
+      rows: items,
+      count: items.length,
+      subtotal: items.reduce((sum, row) => sum + moneyZar(row['Amount (ZAR)']), 0),
+    });
+  }
+  return groups;
 }
 
 export function guestDisplayName(user) {
@@ -710,11 +626,25 @@ export async function buildEventPurchaseLog(event) {
       return String(a['Guest name'] || '').localeCompare(String(b['Guest name'] || ''));
     });
 
+  const groups = groupPurchaseLogRows(rows);
+  const totalZar = rows.reduce((sum, row) => sum + moneyZar(row['Amount (ZAR)']), 0);
+  const { rowsToXlsxBuffer } = await import('./eventPurchaseLogWorkbook.js');
+  const xlsxBuffer = await rowsToXlsxBuffer({
+    eventTitle: event.title,
+    eventDate: event.date,
+    rows,
+    groups,
+    totalZar,
+  });
+
   return {
     filename: purchaseLogFilename(event),
-    csv: rowsToCsv(rows),
-    xls: rowsToExcelXml({ eventTitle: event.title, eventDate: event.date, rows }),
-    rows,
+    xlsxBase64: Buffer.from(xlsxBuffer).toString('base64'),
+    rowCount: rows.length,
+    eventTitle: event.title || 'Event',
+    eventDate: formatEventDateLabel(event.date),
+    totalZar,
+    groups,
   };
 }
 

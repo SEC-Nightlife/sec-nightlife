@@ -3,55 +3,42 @@ import { describe, it } from 'node:test';
 import {
   classifyPurchaseType,
   describePurchase,
-  escapeCsvCell,
   formatMenuSummary,
+  groupPurchaseLogRows,
   purchaseLogFilename,
-  rowsToCsv,
-  rowsToExcelXml,
 } from './eventPurchaseLog.js';
+import { rowsToXlsxBuffer } from './eventPurchaseLogWorkbook.js';
 
-describe('event purchase log CSV', () => {
-  it('quotes commas quotes and newlines', () => {
-    assert.equal(escapeCsvCell('ok'), 'ok');
-    assert.equal(escapeCsvCell('a,b'), '"a,b"');
-    assert.equal(escapeCsvCell('say "hi"'), '"say ""hi"""');
-    assert.equal(escapeCsvCell('line\nbreak'), '"line\nbreak"');
-  });
-
-  it('tells Excel to split on commas and uses CRLF rows', () => {
-    const csv = rowsToCsv([
-      {
-        'Guest name': 'Ada',
-        Email: 'ada@example.com',
-        Type: 'Ticket',
-        'What they paid for': 'VIP ×1 · Hennessy VSOP ×2 (R2400)',
-        'Amount (ZAR)': '2600',
-        'Paid at': '2026-09-14 22:31',
-        Table: '',
-        'Payment reference': 'ref_1',
-        Status: 'Paid',
-      },
-    ]);
-    assert.equal(csv.startsWith('\uFEFF'), true);
-    assert.match(csv, /^[\uFEFF]?sep=,/m);
-    assert.match(csv, /Guest name,Email,Type/);
-    assert.match(csv, /Ada,ada@example.com,Ticket/);
-    assert.match(csv, /\r\n/);
-  });
-
-  it('builds a stable spreadsheet filename', () => {
+describe('event purchase log filename', () => {
+  it('uses an xlsx workbook name', () => {
     assert.equal(
       purchaseLogFilename({ title: 'Friends of Friends #DenimOnWhite', date: '2026-04-12' }),
-      'purchase-log-friends-of-friends-denimonwhite-2026-04-12.xls',
+      'purchase-log-friends-of-friends-denimonwhite-2026-04-12.xlsx',
     );
   });
 });
 
+describe('event purchase log grouping', () => {
+  it('groups tickets guests and menu orders with subtotals', () => {
+    const groups = groupPurchaseLogRows([
+      { Type: 'Table guest', 'Amount (ZAR)': 2400 },
+      { Type: 'Ticket', 'Amount (ZAR)': 150 },
+      { Type: 'Table guest', 'Amount (ZAR)': 100 },
+      { Type: 'Table menu', 'Amount (ZAR)': 70 },
+    ]);
+    assert.equal(groups[0].title, 'Tickets');
+    assert.equal(groups[1].title, 'Table guests');
+    assert.equal(groups[1].count, 2);
+    assert.equal(groups[1].subtotal, 2500);
+    assert.equal(groups[2].title, 'Menu orders');
+  });
+});
+
 describe('event purchase log Excel workbook', () => {
-  it('puts each field in its own cell with a title and total', () => {
-    const xml = rowsToExcelXml({
-      eventTitle: 'Azure After Dark',
-      eventDate: '2026-09-11',
+  it('writes a real xlsx zip', async () => {
+    const buf = await rowsToXlsxBuffer({
+      eventTitle: 'The Private School',
+      eventDate: '2026-06-12',
       rows: [
         {
           'Guest name': 'Ada',
@@ -59,22 +46,16 @@ describe('event purchase log Excel workbook', () => {
           Type: 'Table guest',
           'What they paid for': 'Joined table',
           'Amount (ZAR)': 2400,
-          'Paid at': '2026-06-18 13:03',
-          Table: 'The Elevated Reserve (Tier 2) #1',
+          'Paid at': '2026-06-12 22:47',
+          Table: 'Garden Terrace (Tier 2) #1',
           'Payment reference': 'ref_1',
           Status: 'Paid',
         },
       ],
     });
-    assert.match(xml, /Purchase log — Azure After Dark/);
-    assert.match(xml, /<Data ss:Type="String">Guest name<\/Data>/);
-    assert.match(xml, /<Data ss:Type="String">Email<\/Data>/);
-    assert.match(xml, /<Data ss:Type="String">Ada<\/Data>/);
-    assert.match(xml, /<Data ss:Type="String">ada@example.com<\/Data>/);
-    assert.match(xml, /<Data ss:Type="Number">2400<\/Data>/);
-    assert.match(xml, /ss:Name="Purchase log"/);
-    assert.match(xml, /FreezePanes/);
-    assert.match(xml, /Total/);
+    assert.equal(buf[0], 0x50);
+    assert.equal(buf[1], 0x4b);
+    assert.ok(buf.length > 500);
   });
 });
 
