@@ -65,6 +65,7 @@ import {
   textMatchesGuestSearch,
   unfulfillOrderByReference,
 } from '../lib/orderFulfillment.js';
+import { buildEventPurchaseLog } from '../lib/eventPurchaseLog.js';
 
 const router = Router();
 
@@ -3546,6 +3547,44 @@ router.post('/venue-tables/:tableId/boost', authenticateToken, async (req, res, 
       boost_days: boostDays,
       max_boost_days: maxDays,
       zar_per_day: FEED_BOOST_ZAR_PER_DAY,
+    });
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.get('/events/:eventId/purchase-log', authenticateToken, async (req, res, next) => {
+  try {
+    const eventId = typeof req.params.eventId === 'string' ? req.params.eventId.trim() : '';
+    if (!eventId) return res.status(400).json({ error: 'Event id required' });
+
+    const event = await prisma.event.findFirst({
+      where: { id: eventId, deletedAt: null },
+      select: { id: true, title: true, date: true, venueId: true },
+    });
+    if (!event) return res.status(404).json({ error: 'Event not found' });
+
+    const staffCtx = staffCtxFromQuery(req.query);
+    const scopeOpts = { staffCtx, venueIdFilter: event.venueId };
+    const eventsScope = await resolveBusinessVenueScope(req.userId, { ...scopeOpts, permission: 'events' });
+    const bookingsScope = eventsScope.ok
+      ? eventsScope
+      : await resolveBusinessVenueScope(req.userId, { ...scopeOpts, permission: 'bookings' });
+    if (!bookingsScope.ok) {
+      const status = eventsScope.status === 403 || bookingsScope.status === 403 ? 403 : 404;
+      return res.status(status).json({
+        error: status === 403 ? 'Forbidden' : eventsScope.error || bookingsScope.error || 'Event not found',
+      });
+    }
+    if (!bookingsScope.venueIds.includes(event.venueId)) {
+      return res.status(404).json({ error: 'Event not found' });
+    }
+
+    const log = await buildEventPurchaseLog(event);
+    res.json({
+      filename: log.filename,
+      csv: log.csv,
+      rowCount: log.rows.length,
     });
   } catch (e) {
     next(e);

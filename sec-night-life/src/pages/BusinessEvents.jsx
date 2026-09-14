@@ -12,7 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
-  Calendar, Plus, Edit2, Trash2, Eye, Search, Loader2, Armchair, Users, Crown, UserCheck, Zap,
+  Calendar, Plus, Edit2, Trash2, Eye, Search, Loader2, Armchair, Users, Crown, UserCheck, Zap, Download,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { apiGet, apiPut, apiPost, uploadFile } from '@/api/client';
@@ -154,6 +154,7 @@ export default function BusinessEvents() {
   const [selectedPromoterIds, setSelectedPromoterIds] = useState([]);
   const [boostEvent, setBoostEvent] = useState(null);
   const [boostBusy, setBoostBusy] = useState(false);
+  const [downloadingEventId, setDownloadingEventId] = useState(null);
 
   const coverCrop = useImageCropUpload({
     onCropped: async (file) => {
@@ -335,6 +336,37 @@ export default function BusinessEvents() {
     setForm({ ...EMPTY_EVENT });
     setSelectedPromoterIds([]);
     setDialogOpen(true);
+  };
+
+  const downloadPurchaseLog = async (evt) => {
+    if (!evt?.id || downloadingEventId) return;
+    setDownloadingEventId(evt.id);
+    try {
+      const qs =
+        venueScope.inStaffSession && venueScope.staffContextToken
+          ? `?staff_ctx=${encodeURIComponent(venueScope.staffContextToken)}`
+          : '';
+      const data = await apiGet(`/api/business/events/${encodeURIComponent(evt.id)}/purchase-log${qs}`, {
+        timeoutMs: 60_000,
+      });
+      const csv = data?.csv;
+      if (typeof csv !== 'string') throw new Error('Could not build spreadsheet');
+      const filename = data.filename || `purchase-log-${evt.id}.csv`;
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(url);
+      const n = Number(data.rowCount) || 0;
+      if (n === 0) toast.success('No purchases yet — downloaded a blank log');
+      else toast.success(`Downloaded purchase log (${n} ${n === 1 ? 'purchase' : 'purchases'})`);
+    } catch (err) {
+      toast.error(err?.data?.error || err?.message || 'Could not download purchase log');
+    } finally {
+      setDownloadingEventId(null);
+    }
   };
 
   const openEdit = async (evt) => {
@@ -796,6 +828,25 @@ export default function BusinessEvents() {
                   >
                     <Eye size={16} />
                   </button>
+                  {lifecycleTab !== 'draft' ? (
+                  <button
+                    type="button"
+                    onClick={() => downloadPurchaseLog(evt)}
+                    disabled={downloadingEventId === evt.id}
+                    style={{
+                      padding: 8,
+                      borderRadius: 8,
+                      border: 'none',
+                      cursor: downloadingEventId === evt.id ? 'wait' : 'pointer',
+                      backgroundColor: 'transparent',
+                      color: 'var(--sec-text-muted)',
+                      opacity: downloadingEventId && downloadingEventId !== evt.id ? 0.5 : 1,
+                    }}
+                    title="Download purchase log"
+                  >
+                    {downloadingEventId === evt.id ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />}
+                  </button>
+                  ) : null}
                   {!ended && evt.status === 'published' ? (
                   <button
                     onClick={() => setBoostEvent(evt)}
