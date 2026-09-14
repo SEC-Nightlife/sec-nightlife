@@ -349,10 +349,13 @@ export default function BusinessEvents() {
       const data = await apiGet(`/api/business/events/${encodeURIComponent(evt.id)}/purchase-log${qs}`, {
         timeoutMs: 60_000,
       });
-      const csv = data?.csv;
-      if (typeof csv !== 'string') throw new Error('Could not build spreadsheet');
-      const filename = data.filename || `purchase-log-${evt.id}.csv`;
-      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+      const xls = typeof data?.xls === 'string' && data.xls.trim() ? data.xls : null;
+      const csv = typeof data?.csv === 'string' && data.csv.trim() ? data.csv : null;
+      if (!xls && !csv) throw new Error('Could not build spreadsheet');
+      const filename = data.filename || `purchase-log-${evt.id}.xls`;
+      const blob = xls
+        ? new Blob([xls], { type: 'application/vnd.ms-excel' })
+        : new Blob([csv], { type: 'text/csv;charset=utf-8' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
