@@ -1,11 +1,14 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
+import ExcelJS from 'exceljs';
 import {
   classifyPurchaseType,
   describePurchase,
   formatMenuSummary,
   groupPurchaseLogRows,
   purchaseLogFilename,
+  totalsByGuest,
+  withGuestTotals,
 } from './eventPurchaseLog.js';
 import { rowsToXlsxBuffer } from './eventPurchaseLogWorkbook.js';
 
@@ -34,7 +37,101 @@ describe('event purchase log grouping', () => {
   });
 });
 
+describe('event purchase log guest totals', () => {
+  const galaRows = [
+    {
+      'Guest name': 'Uhle Simelane',
+      Email: 'onyxwebsystems@gmail.com',
+      Type: 'Entrance',
+      'Amount (ZAR)': 10,
+    },
+    {
+      'Guest name': 'Nathi',
+      Email: 'sihle.soa@gmail.com',
+      Type: 'Entrance',
+      'Amount (ZAR)': 10,
+    },
+    {
+      'Guest name': 'Nathi',
+      Email: 'sihle.soa@gmail.com',
+      Type: 'Entrance',
+      'Amount (ZAR)': 10,
+    },
+  ];
+
+  it('combines every purchase a guest made', () => {
+    const guests = totalsByGuest(galaRows);
+    assert.equal(guests.length, 2);
+    const nathi = guests.find((g) => g.guestName === 'Nathi');
+    const uhle = guests.find((g) => g.guestName === 'Uhle Simelane');
+    assert.equal(nathi.count, 2);
+    assert.equal(nathi.totalZar, 20);
+    assert.equal(uhle.count, 1);
+    assert.equal(uhle.totalZar, 10);
+  });
+
+  it('puts the combined guest amount on each purchase row', () => {
+    const rows = withGuestTotals(galaRows);
+    assert.equal(rows[0]['Guest total (ZAR)'], 10);
+    assert.equal(rows[1]['Guest total (ZAR)'], 20);
+    assert.equal(rows[2]['Guest total (ZAR)'], 20);
+  });
+});
+
 describe('event purchase log Excel workbook', () => {
+  it('fills the grand total and each guest’s combined spend', async () => {
+    const rows = withGuestTotals([
+      {
+        'Guest name': 'Uhle Simelane',
+        Email: 'onyxwebsystems@gmail.com',
+        Type: 'Entrance',
+        'What they paid for': 'Entrance fee (R10)',
+        'Amount (ZAR)': 10,
+        'Paid at': '2026-08-15 01:07',
+        Status: 'Paid',
+      },
+      {
+        'Guest name': 'Nathi',
+        Email: 'sihle.soa@gmail.com',
+        Type: 'Entrance',
+        'What they paid for': 'Entrance fee (R10)',
+        'Amount (ZAR)': 10,
+        'Paid at': '2026-07-24 17:28',
+        Status: 'Paid',
+      },
+      {
+        'Guest name': 'Nathi',
+        Email: 'sihle.soa@gmail.com',
+        Type: 'Entrance',
+        'What they paid for': 'Entrance fee (R10)',
+        'Amount (ZAR)': 10,
+        'Paid at': '2026-07-24 17:27',
+        Status: 'Paid',
+      },
+    ]);
+    const buf = await rowsToXlsxBuffer({
+      eventTitle: 'Moonlit Harvest Gala',
+      eventDate: '2026-08-18',
+      rows,
+      totalZar: 30,
+    });
+    const wb = new ExcelJS.Workbook();
+    await wb.xlsx.load(buf);
+    const purchases = wb.getWorksheet('All purchases');
+    assert.equal(purchases.getCell('A8').value, 'Grand total');
+    assert.equal(purchases.getCell('E8').value, 30);
+    assert.equal(purchases.getCell('F5').value, 10);
+    assert.equal(purchases.getCell('F6').value, 20);
+    const summary = wb.getWorksheet('Summary');
+    assert.equal(summary.getCell('A10').value, 'Amount paid by each guest');
+    const guestNames = [summary.getCell('A12').value, summary.getCell('A13').value];
+    assert.ok(guestNames.includes('Nathi'));
+    const nathiRow = guestNames[0] === 'Nathi' ? 12 : 13;
+    assert.equal(summary.getCell(`D${nathiRow}`).value, 20);
+    assert.equal(summary.getCell('A14').value, 'Grand total');
+    assert.equal(summary.getCell('D14').value, 30);
+  });
+
   it('writes a real xlsx zip', async () => {
     const buf = await rowsToXlsxBuffer({
       eventTitle: 'The Private School',

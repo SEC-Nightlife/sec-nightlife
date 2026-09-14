@@ -162,6 +162,43 @@ export function groupPurchaseLogRows(rows = []) {
   return groups;
 }
 
+export function guestIdentityKey(row) {
+  const email = String(row?.Email || '').trim().toLowerCase();
+  if (email) return `email:${email}`;
+  const name = String(row?.['Guest name'] || '').trim().toLowerCase();
+  return name ? `name:${name}` : 'unknown';
+}
+
+export function totalsByGuest(rows = []) {
+  const map = new Map();
+  for (const row of rows) {
+    const key = guestIdentityKey(row);
+    const prev = map.get(key) || {
+      key,
+      guestName: row['Guest name'] || '',
+      email: row.Email || '',
+      count: 0,
+      totalZar: 0,
+    };
+    prev.count += 1;
+    prev.totalZar = moneyZar(prev.totalZar + moneyZar(row['Amount (ZAR)']));
+    if (!prev.guestName && row['Guest name']) prev.guestName = row['Guest name'];
+    if (!prev.email && row.Email) prev.email = row.Email;
+    map.set(key, prev);
+  }
+  return [...map.values()].sort(
+    (a, b) => b.totalZar - a.totalZar || String(a.guestName).localeCompare(String(b.guestName)),
+  );
+}
+
+export function withGuestTotals(rows = []) {
+  const totals = new Map(totalsByGuest(rows).map((g) => [g.key, g.totalZar]));
+  return rows.map((row) => ({
+    ...row,
+    'Guest total (ZAR)': totals.get(guestIdentityKey(row)) ?? moneyZar(row['Amount (ZAR)']),
+  }));
+}
+
 export function guestDisplayName(user) {
   if (!user) return '';
   return String(user.fullName || user.userProfile?.username || user.username || '').trim();
@@ -626,14 +663,17 @@ export async function buildEventPurchaseLog(event) {
       return String(a['Guest name'] || '').localeCompare(String(b['Guest name'] || ''));
     });
 
-  const groups = groupPurchaseLogRows(rows);
-  const totalZar = rows.reduce((sum, row) => sum + moneyZar(row['Amount (ZAR)']), 0);
+  const rowsWithGuestTotals = withGuestTotals(rows);
+  const groups = groupPurchaseLogRows(rowsWithGuestTotals);
+  const totalZar = rowsWithGuestTotals.reduce((sum, row) => sum + moneyZar(row['Amount (ZAR)']), 0);
+  const guestTotals = totalsByGuest(rowsWithGuestTotals);
   const { rowsToXlsxBuffer } = await import('./eventPurchaseLogWorkbook.js');
   const xlsxBuffer = await rowsToXlsxBuffer({
     eventTitle: event.title,
     eventDate: event.date,
-    rows,
+    rows: rowsWithGuestTotals,
     groups,
+    guestTotals,
     totalZar,
   });
 
@@ -644,6 +684,7 @@ export async function buildEventPurchaseLog(event) {
     eventTitle: event.title || 'Event',
     eventDate: formatEventDateLabel(event.date),
     totalZar,
+    guestTotals,
     groups,
   };
 }

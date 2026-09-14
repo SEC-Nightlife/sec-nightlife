@@ -3588,6 +3588,7 @@ router.get('/events/:eventId/purchase-log', authenticateToken, async (req, res, 
       eventTitle: log.eventTitle,
       eventDate: log.eventDate,
       totalZar: log.totalZar,
+      guestTotals: log.guestTotals,
       groups: log.groups,
     });
   } catch (e) {

@@ -32,6 +32,17 @@ function statusColor(status) {
 
 function printPurchaseLog(data) {
   const groups = data.groups || [];
+  const guestTotals = data.guestTotals || [];
+  const guestRows = guestTotals
+    .map(
+      (guest) => `<tr>
+        <td>${esc(guest.guestName)}</td>
+        <td>${esc(guest.email)}</td>
+        <td class="num">${esc(guest.count)}</td>
+        <td class="num">${esc(formatZar(guest.totalZar))}</td>
+      </tr>`,
+    )
+    .join('');
   const sections = groups
     .map((group) => {
       const rows = (group.rows || [])
@@ -41,6 +52,7 @@ function printPurchaseLog(data) {
             <td>${esc(row.Email)}</td>
             <td>${esc(row['What they paid for'])}</td>
             <td class="num">${esc(formatZar(row['Amount (ZAR)']))}</td>
+            <td class="num">${esc(formatZar(row['Guest total (ZAR)'] ?? row['Amount (ZAR)']))}</td>
             <td>${esc(row['Paid at'])}</td>
             <td>${esc(row.Table)}</td>
             <td>${esc(row.Status)}</td>
@@ -51,7 +63,7 @@ function printPurchaseLog(data) {
         <h2>${esc(group.title)} <span>${group.count} · ${esc(formatZar(group.subtotal))}</span></h2>
         <table>
           <thead><tr>
-            <th>Guest</th><th>Email</th><th>What they paid for</th><th>Amount</th><th>Paid at</th><th>Table</th><th>Status</th>
+            <th>Guest</th><th>Email</th><th>What they paid for</th><th>This purchase</th><th>Guest total</th><th>Paid at</th><th>Table</th><th>Status</th>
           </tr></thead>
           <tbody>${rows}</tbody>
         </table>
@@ -64,20 +76,28 @@ function printPurchaseLog(data) {
     <style>
       body { font-family: Calibri, Arial, sans-serif; color: #111; margin: 32px; }
       h1 { font-size: 22px; margin: 0 0 4px; }
-      .sub { color: #555; margin-bottom: 24px; }
+      .sub { color: #555; margin-bottom: 16px; }
       h2 { font-size: 15px; background: #111; color: #fff; padding: 8px 12px; margin: 24px 0 0; }
       h2 span { float: right; font-weight: 600; color: #C9A227; }
       table { width: 100%; border-collapse: collapse; margin-bottom: 8px; }
       th { text-align: left; background: #f3f1ea; padding: 8px; font-size: 12px; border-bottom: 2px solid #C9A227; }
       td { padding: 8px; border-bottom: 1px solid #eee; font-size: 12px; vertical-align: top; }
       .num { text-align: right; white-space: nowrap; }
-      .total { background: #EEE8D5; font-weight: 700; padding: 12px; margin-top: 16px; }
+      .total { background: #EEE8D5; font-weight: 700; padding: 12px; margin-top: 16px; font-size: 16px; }
       @media print { body { margin: 12px; } }
     </style></head><body>
       <h1>Purchase log — ${esc(data.eventTitle || 'Event')}</h1>
-      <div class="sub">${esc(data.eventDate || '')} · ${data.rowCount || 0} purchases · ${esc(formatZar(data.totalZar))}</div>
+      <div class="sub">${esc(data.eventDate || '')} · ${data.rowCount || 0} purchases</div>
+      <div class="total">Grand total paid ${esc(formatZar(data.totalZar))}</div>
+      <section>
+        <h2>Amount paid by each guest</h2>
+        <table>
+          <thead><tr><th>Guest</th><th>Email</th><th>Purchases</th><th>Total paid</th></tr></thead>
+          <tbody>${guestRows || '<tr><td colspan="4">No guests</td></tr>'}</tbody>
+        </table>
+      </section>
       ${sections || '<p>No purchases recorded for this event.</p>'}
-      <div class="total">Grand total ${esc(formatZar(data.totalZar))}</div>
+      <div class="total">Grand total paid ${esc(formatZar(data.totalZar))}</div>
     </body></html>`;
 
   const w = window.open('', '_blank', 'noopener,noreferrer,width=1024,height=768');
@@ -102,6 +122,7 @@ function esc(value) {
 export default function EventPurchaseLogDialog({ open, onOpenChange, data }) {
   const [busy, setBusy] = useState(null);
   const groups = data?.groups || [];
+  const guestTotals = data?.guestTotals || [];
 
   const downloadExcel = () => {
     if (!data?.xlsxBase64) {
@@ -131,11 +152,62 @@ export default function EventPurchaseLogDialog({ open, onOpenChange, data }) {
             {data?.eventTitle || 'Event'}
             {data?.eventDate ? ` · ${data.eventDate}` : ''}
             {` · ${data?.rowCount || 0} ${(data?.rowCount || 0) === 1 ? 'purchase' : 'purchases'}`}
-            {` · ${formatZar(data?.totalZar)}`}
+          </p>
+          <p style={{ fontSize: 16, fontWeight: 700, color: 'var(--sec-accent)', marginTop: 8 }}>
+            Grand total paid {formatZar(data?.totalZar)}
           </p>
         </DialogHeader>
 
         <div className="overflow-y-auto flex-1 py-3 pr-1" style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+          {guestTotals.length ? (
+            <section>
+              <div
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  padding: '8px 12px',
+                  borderRadius: 10,
+                  backgroundColor: 'var(--sec-bg-elevated, #1c1c22)',
+                  border: '1px solid var(--sec-border)',
+                  marginBottom: 8,
+                }}
+              >
+                <strong style={{ fontSize: 14 }}>Amount paid by each guest</strong>
+                <span style={{ fontSize: 12, color: 'var(--sec-accent)' }}>{formatZar(data?.totalZar)}</span>
+              </div>
+              <div style={{ overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                  <thead>
+                    <tr style={{ color: 'var(--sec-text-muted)', textAlign: 'left' }}>
+                      <th style={{ padding: '6px 8px' }}>Guest</th>
+                      <th style={{ padding: '6px 8px' }}>Email</th>
+                      <th style={{ padding: '6px 8px', textAlign: 'right' }}>Purchases</th>
+                      <th style={{ padding: '6px 8px', textAlign: 'right' }}>Total paid</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {guestTotals.map((guest) => (
+                      <tr key={guest.key} style={{ borderTop: '1px solid var(--sec-border)' }}>
+                        <td style={{ padding: '8px', fontWeight: 600 }}>{guest.guestName || '—'}</td>
+                        <td style={{ padding: '8px', color: 'var(--sec-text-muted)' }}>{guest.email || '—'}</td>
+                        <td style={{ padding: '8px', textAlign: 'right' }}>{guest.count}</td>
+                        <td style={{ padding: '8px', textAlign: 'right', whiteSpace: 'nowrap', fontWeight: 700 }}>
+                          {formatZar(guest.totalZar)}
+                        </td>
+                      </tr>
+                    ))}
+                    <tr style={{ borderTop: '2px solid var(--sec-accent)' }}>
+                      <td style={{ padding: '8px', fontWeight: 700 }} colSpan={3}>Grand total</td>
+                      <td style={{ padding: '8px', textAlign: 'right', fontWeight: 700, color: 'var(--sec-accent)' }}>
+                        {formatZar(data?.totalZar)}
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          ) : null}
           {groups.length === 0 ? (
             <p style={{ fontSize: 14, color: 'var(--sec-text-muted)', padding: 12 }}>
               No purchases recorded for this event.
@@ -167,7 +239,8 @@ export default function EventPurchaseLogDialog({ open, onOpenChange, data }) {
                         <th style={{ padding: '6px 8px' }}>Guest</th>
                         <th style={{ padding: '6px 8px' }}>Email</th>
                         <th style={{ padding: '6px 8px' }}>What they paid for</th>
-                        <th style={{ padding: '6px 8px', textAlign: 'right' }}>Amount</th>
+                        <th style={{ padding: '6px 8px', textAlign: 'right' }}>This purchase</th>
+                        <th style={{ padding: '6px 8px', textAlign: 'right' }}>Guest total</th>
                         <th style={{ padding: '6px 8px' }}>Table</th>
                         <th style={{ padding: '6px 8px' }}>Status</th>
                       </tr>
@@ -180,6 +253,9 @@ export default function EventPurchaseLogDialog({ open, onOpenChange, data }) {
                           <td style={{ padding: '8px' }}>{row['What they paid for'] || '—'}</td>
                           <td style={{ padding: '8px', textAlign: 'right', whiteSpace: 'nowrap' }}>
                             {formatZar(row['Amount (ZAR)'])}
+                          </td>
+                          <td style={{ padding: '8px', textAlign: 'right', whiteSpace: 'nowrap', fontWeight: 700 }}>
+                            {formatZar(row['Guest total (ZAR)'] ?? row['Amount (ZAR)'])}
                           </td>
                           <td style={{ padding: '8px' }}>{row.Table || '—'}</td>
                           <td style={{ padding: '8px', color: statusColor(row.Status), fontWeight: 600 }}>
