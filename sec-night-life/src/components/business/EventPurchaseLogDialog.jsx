@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
-import { Download, Loader2, Printer } from 'lucide-react';
+import { Download, FileText, Loader2 } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
+import { downloadAndOpenPurchaseLogPdf } from '@/lib/eventPurchaseLogPdf';
 
 function formatZar(n) {
   const x = Math.round((Number(n) || 0) * 100) / 100;
@@ -30,94 +31,6 @@ function statusColor(status) {
   return '#E8B84A';
 }
 
-function printPurchaseLog(data) {
-  const groups = data.groups || [];
-  const guestTotals = data.guestTotals || [];
-  const guestRows = guestTotals
-    .map(
-      (guest) => `<tr>
-        <td>${esc(guest.guestName)}</td>
-        <td>${esc(guest.email)}</td>
-        <td class="num">${esc(guest.count)}</td>
-        <td class="num">${esc(formatZar(guest.totalZar))}</td>
-      </tr>`,
-    )
-    .join('');
-  const sections = groups
-    .map((group) => {
-      const rows = (group.rows || [])
-        .map(
-          (row) => `<tr>
-            <td>${esc(row['Guest name'])}</td>
-            <td>${esc(row.Email)}</td>
-            <td>${esc(row['What they paid for'])}</td>
-            <td class="num">${esc(formatZar(row['Amount (ZAR)']))}</td>
-            <td class="num">${esc(formatZar(row['Guest total (ZAR)'] ?? row['Amount (ZAR)']))}</td>
-            <td>${esc(row['Paid at'])}</td>
-            <td>${esc(row.Table)}</td>
-            <td>${esc(row.Status)}</td>
-          </tr>`,
-        )
-        .join('');
-      return `<section>
-        <h2>${esc(group.title)} <span>${group.count} · ${esc(formatZar(group.subtotal))}</span></h2>
-        <table>
-          <thead><tr>
-            <th>Guest</th><th>Email</th><th>What they paid for</th><th>This purchase</th><th>Guest total</th><th>Paid at</th><th>Table</th><th>Status</th>
-          </tr></thead>
-          <tbody>${rows}</tbody>
-        </table>
-      </section>`;
-    })
-    .join('');
-
-  const html = `<!doctype html><html><head><meta charset="utf-8"/>
-    <title>${esc(data.eventTitle || 'Purchase log')}</title>
-    <style>
-      body { font-family: Calibri, Arial, sans-serif; color: #111; margin: 32px; }
-      h1 { font-size: 22px; margin: 0 0 4px; }
-      .sub { color: #555; margin-bottom: 16px; }
-      h2 { font-size: 15px; background: #111; color: #fff; padding: 8px 12px; margin: 24px 0 0; }
-      h2 span { float: right; font-weight: 600; color: #C9A227; }
-      table { width: 100%; border-collapse: collapse; margin-bottom: 8px; }
-      th { text-align: left; background: #f3f1ea; padding: 8px; font-size: 12px; border-bottom: 2px solid #C9A227; }
-      td { padding: 8px; border-bottom: 1px solid #eee; font-size: 12px; vertical-align: top; }
-      .num { text-align: right; white-space: nowrap; }
-      .total { background: #EEE8D5; font-weight: 700; padding: 12px; margin-top: 16px; font-size: 16px; }
-      @media print { body { margin: 12px; } }
-    </style></head><body>
-      <h1>Purchase log — ${esc(data.eventTitle || 'Event')}</h1>
-      <div class="sub">${esc(data.eventDate || '')} · ${data.rowCount || 0} purchases</div>
-      <div class="total">Grand total paid ${esc(formatZar(data.totalZar))}</div>
-      <section>
-        <h2>Amount paid by each guest</h2>
-        <table>
-          <thead><tr><th>Guest</th><th>Email</th><th>Purchases</th><th>Total paid</th></tr></thead>
-          <tbody>${guestRows || '<tr><td colspan="4">No guests</td></tr>'}</tbody>
-        </table>
-      </section>
-      ${sections || '<p>No purchases recorded for this event.</p>'}
-      <div class="total">Grand total paid ${esc(formatZar(data.totalZar))}</div>
-    </body></html>`;
-
-  const w = window.open('', '_blank', 'noopener,noreferrer,width=1024,height=768');
-  if (!w) {
-    toast.error('Allow pop-ups to print or save a PDF');
-    return;
-  }
-  w.document.write(html);
-  w.document.close();
-  w.focus();
-  w.print();
-}
-
-function esc(value) {
-  return String(value ?? '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
-}
 
 export default function EventPurchaseLogDialog({ open, onOpenChange, data }) {
   const [busy, setBusy] = useState(null);
@@ -135,6 +48,22 @@ export default function EventPurchaseLogDialog({ open, onOpenChange, data }) {
       toast.success('Excel workbook downloaded');
     } catch {
       toast.error('Could not download Excel file');
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const downloadPdf = () => {
+    if (!data) {
+      toast.error('Purchase log is not ready yet');
+      return;
+    }
+    setBusy('pdf');
+    try {
+      const result = downloadAndOpenPurchaseLogPdf(data);
+      toast.success(result.opened ? 'PDF opened and downloaded' : 'PDF downloaded');
+    } catch {
+      toast.error('Could not download PDF');
     } finally {
       setBusy(null);
     }
@@ -285,12 +214,13 @@ export default function EventPurchaseLogDialog({ open, onOpenChange, data }) {
           <Button
             type="button"
             variant="outline"
-            onClick={() => printPurchaseLog(data)}
+            onClick={downloadPdf}
+            disabled={busy === 'pdf'}
             className="h-10 rounded-xl"
             style={{ borderColor: 'var(--sec-border)' }}
           >
-            <Printer size={16} className="mr-1.5" />
-            Print / Save PDF
+            {busy === 'pdf' ? <Loader2 size={16} className="mr-1.5 animate-spin" /> : <FileText size={16} className="mr-1.5" />}
+            Download PDF
           </Button>
         </div>
       </DialogContent>
