@@ -85,12 +85,21 @@ export default function Login() {
   useEffect(() => {
     let cancelled = false;
     if (!getRefreshToken()) return undefined;
+    const expectedRole = isStaffRole
+      ? roleParam
+      : accountType === 'VENUE'
+        ? 'VENUE'
+        : 'USER';
     (async () => {
       try {
         const ok = await authService.ensureSession();
         if (!ok || cancelled) return;
         const { user } = await authService.getAuthSession();
         if (!user || cancelled) return;
+        // Multi-role emails: only auto-skip Login when session matches Party Goer / Business choice.
+        if (expectedRole && user.role && String(user.role) !== String(expectedRole)) {
+          return;
+        }
         navigate(returnUrl, { replace: true });
       } catch {
         // stay on login form
@@ -99,7 +108,7 @@ export default function Login() {
     return () => {
       cancelled = true;
     };
-  }, [navigate, returnUrl]);
+  }, [navigate, returnUrl, accountType, roleParam, isStaffRole]);
 
   useEffect(() => {
     if (step !== 'otp' || resendCooldown <= 0) return undefined;
@@ -400,6 +409,10 @@ export default function Login() {
                     Business Owner
                   </button>
                 </div>
+                <p className="mt-2 text-xs text-gray-500 leading-relaxed">
+                  Party Goer and Business are separate accounts on the same email. Choose the one you
+                  want before signing in.
+                </p>
               </div>
             )}
 

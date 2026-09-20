@@ -223,6 +223,7 @@ export async function login(email, password, role) {
       resendAvailableInSeconds: data.resendAvailableInSeconds ?? 60,
     };
   }
+  clearSessionCache();
   setTokens(data.accessToken, data.refreshToken);
   await cacheSessionAfterTokens(data.user);
   return { user: data.user };
@@ -230,6 +231,7 @@ export async function login(email, password, role) {
 
 export async function verifyLoginOtp(loginChallengeToken, otp) {
   const data = await apiPost('/api/auth/verify-login-otp', { loginChallengeToken, otp }, { skipAuth: true });
+  clearSessionCache();
   setTokens(data.accessToken, data.refreshToken);
   await cacheSessionAfterTokens(data.user);
   return data.user;

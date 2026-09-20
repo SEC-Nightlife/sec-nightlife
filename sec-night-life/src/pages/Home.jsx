@@ -239,7 +239,7 @@ function HomeSessionSkeleton() {
   return (
     <div className="min-h-screen" style={{ minHeight: '100vh', backgroundColor: 'var(--sec-bg-base)' }}>
       <header
-        className="sticky top-0 z-40 border-b border-[var(--sec-border)] min-h-[60px]"
+        className="sticky top-0 z-40 border-b border-[var(--sec-border)] min-h-[60px] pt-[env(safe-area-inset-top)]"
         style={{ backgroundColor: 'rgba(0,0,0,0.92)' }}
       >
         <div className="max-w-[1120px] mx-auto w-full px-4 sm:px-5 py-4">
@@ -842,7 +842,7 @@ export default function Home() {
 
       {/* ── Header ── */}
       <header
-        className="sticky top-0 z-40 border-b border-[var(--sec-border)] min-h-[60px]"
+        className="sticky top-0 z-40 border-b border-[var(--sec-border)] min-h-[60px] pt-[env(safe-area-inset-top)]"
         style={{
           backgroundColor: 'rgba(0,0,0,0.92)',
           backdropFilter: 'blur(20px)',

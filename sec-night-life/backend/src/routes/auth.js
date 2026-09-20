@@ -599,17 +599,9 @@ router.post('/login', async (req, res, next) => {
         if (allForEmail.length === 1) {
           user = await tryPassword(allForEmail[0]);
         } else if (allForEmail.length > 1) {
-          // If multiple accounts share one email, allow login when exactly one row matches password.
-          // This prevents stale Party/Business toggle state from blocking valid credentials.
-          const matched = [];
-          for (const account of allForEmail) {
-            // eslint-disable-next-line no-await-in-loop
-            const ok = await tryPassword(account);
-            if (ok) matched.push(ok);
-          }
-          if (matched.length === 1) {
-            [user] = matched;
-          }
+          // Multiple roles on one email (e.g. Party Goer USER + Business VENUE):
+          // do not fall back to another role — require the selected Party/Business toggle.
+          user = null;
         }
       }
     } else if (loginRole) {

@@ -59,9 +59,13 @@ function restoreCachedSession(setUser, setUserProfile, setIsAuthenticated) {
   return true;
 }
 
-/** Prefer a real profile from /me; never wipe a known-complete profile with null. */
+/** Prefer a real profile from /me; never reuse another user's cached profile. */
 function mergeProfileFromSession(prev, next, userId) {
   if (next != null) return next;
+  const prevId = prev?.user_id || prev?.userId || prev?.id;
+  if (prevId && userId && String(prevId) !== String(userId)) {
+    return null;
+  }
   if (
     prev?.onboarding_complete === true ||
     (userId && isOnboardingMarkedComplete(userId))
@@ -71,6 +75,13 @@ function mergeProfileFromSession(prev, next, userId) {
       : { ...(prev || {}), onboarding_complete: true };
   }
   return next;
+}
+
+function profileForUserCache(profile, userId) {
+  if (!profile) return null;
+  const prevId = profile?.user_id || profile?.userId || profile?.id;
+  if (prevId && userId && String(prevId) !== String(userId)) return null;
+  return profile;
 }
 
 export const AuthProvider = ({ children }) => {
@@ -170,7 +181,10 @@ export const AuthProvider = ({ children }) => {
         setUser(nextUser);
         setIsAuthenticated(true);
         setUserProfile((prev) => mergeProfileFromSession(prev, profile, nextUser.id));
-        writeSessionCache(currentUser, profile ?? userProfileRef.current);
+        writeSessionCache(
+          currentUser,
+          profile ?? profileForUserCache(userProfileRef.current, nextUser.id),
+        );
       } catch (err) {
         const refreshStillValid = Boolean(getRefreshToken());
         if (refreshStillValid) {
@@ -185,7 +199,10 @@ export const AuthProvider = ({ children }) => {
             setUser(nextUser);
             setIsAuthenticated(true);
             setUserProfile((prev) => mergeProfileFromSession(prev, retryProfile, nextUser.id));
-            writeSessionCache(retryUser, retryProfile ?? userProfileRef.current);
+            writeSessionCache(
+              retryUser,
+              retryProfile ?? profileForUserCache(userProfileRef.current, nextUser.id),
+            );
             setAuthError(null);
             return;
           } catch {

@@ -19,7 +19,9 @@ const config: CapacitorConfig = {
   },
   plugins: {
     SplashScreen: {
-      launchShowDuration: 2000,
+      // Android: 0 avoids OnPreDrawListener stuck-splash races (hide via capacitorNative timers).
+      // iOS LaunchScreen uses SEC Splash.imageset; web hideNativeSplash runs after first paint.
+      launchShowDuration: 0,
       launchAutoHide: true,
       backgroundColor: '#000000',
       androidSplashResourceName: 'splash',
