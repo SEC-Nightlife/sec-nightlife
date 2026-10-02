@@ -16,6 +16,7 @@ import { sendEmail } from './email.js';
 import { logger } from './logger.js';
 import { hideParticipationForRefund } from './tableHistory.js';
 import { appendVenueTableRefundNotice } from './venueTableRefundNotice.js';
+import { netOfServiceFee } from './serviceFee.js';
 
 const ELIGIBLE_META_TYPES = new Set(['TABLE_CHECKOUT', 'VENUE_TABLE_JOIN', 'ticket', 'event', 'table']);
 const EXCLUDED_META_TYPES = new Set([
@@ -403,7 +404,7 @@ export async function validateRefundEligibility({ payment, userId, userWalletCod
       venueId: String(venueId),
       baseRef,
       refundType: 'HOSTED_TABLE_MENU',
-      grossAmountZar: Number(payment.amount) || Number(meta.menu_zar || 0),
+      grossAmountZar: netOfServiceFee(meta, payment.amount) || Number(meta.menu_zar || 0),
       meta,
       venueTableMember: null,
       venueTableId: meta.venue_table_id ?? meta.venueTableId ?? null,

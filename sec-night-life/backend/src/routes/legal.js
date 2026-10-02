@@ -23,8 +23,8 @@ const LEGAL_DOCS = {
   terms_of_service: {
     type: 'TERMS_OF_SERVICE',
     title: 'Terms of Service',
-    version: '1.0',
-    effectiveDate: '2026-04-01',
+    version: '1.1',
+    effectiveDate: '2026-10-02',
     path: '/TermsOfService',
   },
   cookie_policy: {
@@ -58,8 +58,8 @@ const LEGAL_DOCS = {
   refund_policy: {
     type: 'REFUND_POLICY',
     title: 'Refund Policy',
-    version: '1.0',
-    effectiveDate: '2026-04-01',
+    version: '1.1',
+    effectiveDate: '2026-10-02',
     path: '/RefundPolicy',
   },
   community_guidelines: {

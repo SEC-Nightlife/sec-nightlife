@@ -9,7 +9,8 @@ import {
 import { toast } from 'sonner';
 import { launchPaystackInline } from '@/lib/paystackInline';
 import { completePaystackCheckout } from '@/lib/completePaystackCheckout';
-import MenuPicker, { menuSelectionToPayload } from '@/components/menu/MenuPicker';
+import MenuPicker, { menuSelectionToPayload, menuSelectionTotal } from '@/components/menu/MenuPicker';
+import { SERVICE_FEE_ZAR, totalWithServiceFee } from '@/lib/serviceFee';
 import InviteFriendsDialog from '@/components/tables/InviteFriendsDialog';
 import HostedTableJoinWizard from '@/components/tables/HostedTableJoinWizard';
 import SeatingPlanViewer from '@/components/seating/SeatingPlanViewer';
@@ -131,6 +132,7 @@ export default function HostedTableExperience({
   const tableJoinable =
     tableStatus === 'ACTIVE' && spotsRemaining > 0 && !isPendingMember;
   const venueMenu = hostedTable.venue_menu || [];
+  const hostedMenuSubtotal = menuSelectionTotal(venueMenu, hostedMenuSelected);
   const goingMembers = (hostedTable.members || []).filter((m) => m.status === 'GOING');
   const isCommunityEvent =
     Boolean(hostedTable.is_community_event) ||
@@ -609,7 +611,9 @@ export default function HostedTableExperience({
               disabled={isProcessingPayment}
               onClick={payHostedMenu}
             >
-              Pay for selected items
+              {hostedMenuSubtotal > 0
+                ? `Pay R${totalWithServiceFee(hostedMenuSubtotal).toFixed(2)} (incl. R${SERVICE_FEE_ZAR} service fee)`
+                : 'Pay for selected items'}
             </Button>
           </div>
         </div>
@@ -694,7 +698,7 @@ export default function HostedTableExperience({
               {isProcessingPayment
                 ? 'Processing…'
                 : totalOnline > 0
-                  ? `Complete payment · R${totalOnline.toFixed(0)}`
+                  ? `Complete payment · R${totalWithServiceFee(totalOnline).toFixed(2)}`
                   : 'Complete payment'}
             </Button>
           ) : isPendingApproval ? (
@@ -714,7 +718,7 @@ export default function HostedTableExperience({
               {requiresApproval
                 ? 'Request to join'
                 : totalOnline > 0
-                  ? `Join · R${totalOnline.toFixed(0)}`
+                  ? `Join · R${totalWithServiceFee(totalOnline).toFixed(2)}`
                   : 'Join table'}
             </Button>
           )}

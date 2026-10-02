@@ -26,6 +26,7 @@ import FeedBoostDialog, {
 } from '@/components/business/FeedBoostDialog';
 import { splitHostDashboardTables } from '@/lib/hostTableDashboard';
 import PageBackHeader from '@/components/layout/PageBackHeader';
+import WeeklyPayoutNotice from '@/components/wallet/WeeklyPayoutNotice';
 import { useIsMobile } from '@/hooks/useIsDesktop';
 import { useBodyScrollLock } from '@/hooks/useBodyScrollLock';
 
@@ -54,6 +55,11 @@ export default function HostDashboard() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [user, setUser] = useState(null);
   const [tab, setTab] = useState('tables');
+  const { data: walletSummary } = useQuery({
+    queryKey: ['sec-wallet-me'],
+    queryFn: () => apiGet('/api/wallet/me'),
+    staleTime: 60_000,
+  });
   const [tablesSubTab, setTablesSubTab] = useState('upcoming');
   const [showTableModal, setShowTableModal] = useState(false);
   const createFormScrollRef = useRef(null);
@@ -1041,7 +1047,8 @@ export default function HostDashboard() {
           <span>
             <span className="font-medium">Charge joining fee</span>
             <span className="block text-xs text-[var(--sec-text-muted)] mt-0.5">
-              You receive 85% of each payment in your SEC wallet. SEC keeps 15%.
+              You receive 85% of each payment in your SEC wallet, paid out weekly on Mondays (minimum R50).
+              SEC keeps 15%. Guests also pay a R5 SEC service fee at checkout.
             </span>
           </span>
         </label>
@@ -1253,6 +1260,12 @@ export default function HostDashboard() {
       )}
 
       <div className="px-4">
+      <WeeklyPayoutNotice
+        className="mb-4"
+        nextPayoutDate={walletSummary?.nextPayoutDate}
+        payoutMinimumZar={walletSummary?.payoutMinimumZar}
+        queuedForNextPayout={walletSummary?.queuedForNextPayout}
+      />
       <Tabs value={tab} onValueChange={setTab}>
         <TabsList className="grid w-full grid-cols-2 mb-4">
           <TabsTrigger value="tables">Tables</TabsTrigger>

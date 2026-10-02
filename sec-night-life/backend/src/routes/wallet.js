@@ -86,9 +86,7 @@ router.get('/me', authenticateToken, async (req, res, next) => {
       },
     });
     const summary = await aggregateWalletSummary({ userId: req.userId });
-    const payoutComplete = Boolean(
-      user?.userProfile?.paymentSetupComplete && user?.paystackRecipientCode,
-    );
+    const payoutComplete = Boolean(user?.paystackRecipientCode);
 
     res.json({
       walletCode: wallet.walletCode,
@@ -98,6 +96,12 @@ router.get('/me', authenticateToken, async (req, res, next) => {
       pendingBalance: summary.pendingBalance,
       totalReceived: summary.totalReceived,
       transactions: summary.transactions,
+      payoutSchedule: summary.payoutSchedule,
+      payoutMinimumZar: summary.payoutMinimumZar,
+      nextPayoutDate: summary.nextPayoutDate,
+      queuedForNextPayout: summary.queuedForNextPayout,
+      meetsPayoutMinimum: summary.meetsPayoutMinimum,
+      inTransit: summary.inTransit,
     });
   } catch (err) {
     next(err);
@@ -131,6 +135,12 @@ router.get('/venue/:venueId', authenticateToken, async (req, res, next) => {
       pendingBalance: summary.pendingBalance,
       totalReceived: summary.totalReceived,
       transactions: summary.transactions,
+      payoutSchedule: summary.payoutSchedule,
+      payoutMinimumZar: summary.payoutMinimumZar,
+      nextPayoutDate: summary.nextPayoutDate,
+      queuedForNextPayout: summary.queuedForNextPayout,
+      meetsPayoutMinimum: summary.meetsPayoutMinimum,
+      inTransit: summary.inTransit,
     });
   } catch (err) {
     if (err instanceof z.ZodError) return res.status(400).json({ error: 'Invalid venue id' });

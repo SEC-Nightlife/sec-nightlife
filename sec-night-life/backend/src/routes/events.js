@@ -826,6 +826,8 @@ router.post('/:id/entrance-checkout-preview', authenticateToken, async (req, res
     res.json({
       entrance_zar: computed.entranceZar,
       menu_zar: computed.menuZar,
+      subtotal: computed.subtotal,
+      service_fee: computed.serviceFee,
       total: computed.total,
       platform_fee: computed.platformFee,
       venue_share: computed.venueShare,

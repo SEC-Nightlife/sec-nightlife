@@ -114,6 +114,7 @@ import {
   abandonSupersededPendingPayments,
   buildPaystackInitializeBody,
 } from '../lib/paystackInitialize.js';
+import { netOfServiceFee, serviceFeeFromMeta } from '../lib/serviceFee.js';
 
 const router = Router();
 
@@ -331,10 +332,13 @@ async function applyReferenceSideEffects(reference, paystackData) {
     paystackData?.customer?.email || priorPay.email || metadata.email || 'unknown@secnightlife.app';
   // Prefer Paystack kobo amount; fall back to the Payment row (ZAR). Missing priorPay.amount
   // previously collapsed to 0 and silently skipped EXTERNAL_LISTING activation.
-  const amount =
+  const chargedAmount =
     paystackData?.amount != null && Number(paystackData.amount) > 0
       ? Number(paystackData.amount) / 100
       : Number(priorPay?.amount) || 0;
+  // Venue/host gross for every split, payout, and booking total below — excludes the SEC service fee.
+  const serviceFeeZar = serviceFeeFromMeta(metadata);
+  const amount = netOfServiceFee(metadata, chargedAmount);
   const type = metadata.type || 'other';
 
   try {
@@ -343,6 +347,10 @@ async function applyReferenceSideEffects(reference, paystackData) {
     where: { stripeId: reference },
     data: { status: 'paid', metadata: paystackData },
   });
+
+  if (serviceFeeZar > 0) {
+    await recordSecPlatformRevenue(`${reference}:service_fee`, serviceFeeZar);
+  }
 
   const PROMO_MS_DAY = 24 * 60 * 60 * 1000;
   const promoId = resolvePromotionIdFromMetadata(metadata);
@@ -1926,7 +1934,7 @@ async function applyReferenceSideEffects(reference, paystackData) {
     where: { reference },
     data: {
       status: 'success',
-      amount,
+      amount: chargedAmount,
       type: payType,
       metadata: finalMeta,
     },
@@ -1936,7 +1944,7 @@ async function applyReferenceSideEffects(reference, paystackData) {
       data: {
         userId: userId || priorPay.userId || 'unknown',
         email,
-        amount,
+        amount: chargedAmount,
         reference,
         status: 'success',
         type: payType,
@@ -2771,8 +2779,8 @@ router.post('/payout-recipient', authenticateToken, async (req, res, next) => {
       });
     }
 
-    // Retry stuck payouts now that a recipient exists so admin pending stats / reminder
-    // lists update as soon as transfers leave PENDING (best-effort; setup still succeeds).
+    // Ready queued earnings for the next weekly payout now that a recipient exists
+    // (clears "missing recipient" flags; no transfer here; best-effort).
     let payoutRetry = null;
     try {
       const { retryStuckPayouts } = await import('../lib/paystackPayout.js');
@@ -2897,6 +2905,8 @@ router.post('/initialize', authenticateToken, async (req, res, next) => {
         venue_id: computed.event.venueId,
         entrance_zar: computed.entranceZar,
         menu_zar: computed.menuZar,
+        subtotal_zar: computed.subtotal,
+        service_fee_zar: computed.serviceFee,
         amount_total_zar: computed.total,
         platform_fee_zar: computed.platformFee,
         venue_share_zar: computed.venueShare,
@@ -3039,6 +3049,8 @@ router.post('/paystack/initialize', authenticateToken, async (req, res, next) =>
         venue_id: computed.event.venueId,
         entrance_zar: computed.entranceZar,
         menu_zar: computed.menuZar,
+        subtotal_zar: computed.subtotal,
+        service_fee_zar: computed.serviceFee,
         amount_total_zar: computed.total,
         platform_fee_zar: computed.platformFee,
         venue_share_zar: computed.venueShare,

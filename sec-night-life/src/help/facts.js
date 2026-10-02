@@ -14,4 +14,7 @@ export const HELP_FACTS = {
   promoterJobsForVerified: 20,
   promoterMinRatings: 3,
   promoterMinUniqueRaters: 2,
+  serviceFeeZar: 5,
+  payoutMinZar: 50,
+  payoutDay: 'Monday',
 };

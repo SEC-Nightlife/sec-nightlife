@@ -1,6 +1,6 @@
 /** Must match backend `LEGAL_DOCS` versions in `backend/src/routes/legal.js` for acceptance POSTs */
 export const LEGAL_ACCEPT_VERSION = {
-  termsOfService: '1.0',
+  termsOfService: '1.1',
   privacyPolicy: '1.0',
 };
 

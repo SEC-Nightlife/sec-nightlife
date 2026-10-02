@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { VenuePayoutSetup } from './WalletPayoutSetup';
+import WeeklyPayoutNotice from './WeeklyPayoutNotice';
 import { asArray } from '@/utils';
 
 function formatZar(n) {
@@ -205,11 +206,17 @@ export default function VenueSecWallet({ venues: venuesProp, onVenuesUpdated }) 
               </div>
             </div>
             <p className="text-[11px] text-gray-500 mt-3 leading-relaxed">
-              Pending is money owed in SEC. Received means the bank transfer was sent.
-              Your bank may take 1–2 business days to show the credit (longer on weekends or public holidays).
+              Pending is money owed to your venue that will be included in the next weekly payout. Received means
+              the bank transfer was sent. Your bank may take 1–2 business days to show the credit (longer on weekends or public holidays).
               Match amounts here with your bank statement.
             </p>
           </div>
+
+          <WeeklyPayoutNotice
+            nextPayoutDate={data?.nextPayoutDate}
+            payoutMinimumZar={data?.payoutMinimumZar}
+            queuedForNextPayout={data?.queuedForNextPayout}
+          />
 
           {!data?.payoutSetupComplete && (
             <div
@@ -217,7 +224,7 @@ export default function VenueSecWallet({ venues: venuesProp, onVenuesUpdated }) 
               style={{ border: '1px solid var(--sec-accent-border)', background: 'var(--sec-accent-muted)', color: 'var(--sec-text-primary)' }}
             >
               <AlertCircle className="w-5 h-5 shrink-0" style={{ color: 'var(--sec-accent-bright)' }} />
-              <p>Set up venue payout details so table earnings reach your business account.</p>
+              <p>Set up venue payout details so your earnings can be included in the weekly Monday payout to your business account.</p>
             </div>
           )}
 
@@ -377,7 +384,7 @@ export default function VenueSecWallet({ venues: venuesProp, onVenuesUpdated }) 
                             ? 'Received'
                             : tx.status === 'PROCESSING'
                               ? 'Transferring'
-                              : 'Pending')}
+                              : 'Next payout')}
                       </p>
                     </div>
                   </li>

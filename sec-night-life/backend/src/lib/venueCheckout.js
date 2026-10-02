@@ -1,10 +1,11 @@
 import { line, sumCheckoutLines } from './checkoutLines.js';
 import { splitPlatformGross } from './platformSplit.js';
 import { resolveTableEntranceZar } from './entranceCheckout.js';
+import { withServiceFee } from './serviceFee.js';
 
 /**
  * Build checkout lines for a venue table booking.
- * SEC takes 15% from the customer total (not added on top).
+ * SEC takes 15% from the subtotal; the flat SEC service fee is added on top.
  * @param {object} table - VenueTable with optional event include
  * @param {object} opts
  * @param {number} opts.menuTotal - full selected menu total for min-spend checks
@@ -94,16 +95,18 @@ export function computeVenueCheckout(
   const chargeable = lines.filter((l) => Number(l.amount_zar) > 0);
   const subtotal = sumCheckoutLines(chargeable);
   const { secAmount: platformFee, recipientAmount: venueShare } = splitPlatformGross(subtotal);
+  const withFee = withServiceFee(chargeable, subtotal);
 
   return {
-    lines: chargeable,
-    displayLines: chargeable,
+    lines: withFee.lines,
+    displayLines: withFee.lines,
     mode,
     bookingMode,
     subtotal,
+    serviceFee: withFee.serviceFee,
     platformFee,
     venueShare,
-    total: subtotal,
+    total: withFee.total,
   };
 }
 

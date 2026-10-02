@@ -1502,7 +1502,8 @@ export default function VenueOnboarding() {
                  className="h-12 bg-[#141416] border-[#262629] rounded-xl"
                />
                <p className="text-xs" style={{ color: 'var(--sec-text-muted)' }}>
-                 Missing payout details means your venue payouts stay pending until setup is completed.
+                 Venue earnings are paid out weekly, every Monday, once the balance is at least R50 (smaller balances roll
+                 over). Missing payout details means your venue payouts stay pending until setup is completed.
                </p>
 
               {error && (

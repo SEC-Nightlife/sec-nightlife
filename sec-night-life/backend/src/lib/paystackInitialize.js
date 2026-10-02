@@ -33,6 +33,7 @@ export function slimMetadataForPaystack(meta = {}, userId) {
     'promoId',
     'promoter_user_id',
     'amount_total_zar',
+    'service_fee_zar',
     'booking_mode',
     'bookingMode',
     'window_start',

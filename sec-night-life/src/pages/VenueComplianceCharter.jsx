@@ -8,7 +8,7 @@ export default function VenueComplianceCharter() {
   return (
     <LegalDocumentPage
       title="Venue Compliance Charter"
-      effectiveDate="Governing law: Republic of South Africa · Effective April 2026"
+      effectiveDate="Governing law: Republic of South Africa · Effective October 2026"
     >
       <LegalPolicySection title="1. Purpose and Scope">
         <p>
@@ -112,6 +112,13 @@ export default function VenueComplianceCharter() {
           Venues acknowledge and agree that they bear full responsibility for all financial transactions related to their
           events, including refunds, cancellations, and disputes. SEC operates solely as a facilitator and does not
           assume liability for financial outcomes.
+        </p>
+        <p>
+          Venue earnings (after the SEC platform split) are recorded in the venue&apos;s Sec Wallet and paid out in one
+          combined bank transfer every Monday once the outstanding balance is at least R50; smaller balances roll over to
+          the following week. Guests pay a separate flat R5 SEC service fee at checkout, which is not part of venue
+          earnings and is not refunded by venues. Venues are responsible for keeping their Sec Wallet bank details
+          accurate so payouts are not delayed.
         </p>
         <p>
           Venues must establish and honor fair refund policies and are required to address user refund requests directly.

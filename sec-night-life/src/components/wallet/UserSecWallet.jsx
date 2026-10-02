@@ -5,6 +5,7 @@ import { format, parseISO } from 'date-fns';
 import { Wallet, Copy, AlertCircle, ArrowDownLeft, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { UserPayoutSetup } from './WalletPayoutSetup';
+import WeeklyPayoutNotice from './WeeklyPayoutNotice';
 
 function formatZar(n) {
   return `R ${Number(n || 0).toFixed(2)}`;
@@ -72,11 +73,17 @@ export default function UserSecWallet({ userProfile, onProfileUpdated }) {
           </div>
         </div>
         <p className="text-[11px] text-gray-500 mt-3 leading-relaxed">
-          Pending is money owed in SEC. Received means the bank transfer was sent.
-          Your bank may take 1–2 business days to show the credit (longer on weekends or public holidays).
+          Pending is money owed to you that will be included in the next weekly payout. Received means the bank
+          transfer was sent. Your bank may take 1–2 business days to show the credit (longer on weekends or public holidays).
           Match amounts here with your bank statement — look for SEC Nightlife on the transfer description when available.
         </p>
       </div>
+
+      <WeeklyPayoutNotice
+        nextPayoutDate={data?.nextPayoutDate}
+        payoutMinimumZar={data?.payoutMinimumZar}
+        queuedForNextPayout={data?.queuedForNextPayout}
+      />
 
       {!data?.payoutSetupComplete && (
         <div
@@ -89,8 +96,8 @@ export default function UserSecWallet({ userProfile, onProfileUpdated }) {
         >
           <AlertCircle className="w-5 h-5 shrink-0" style={{ color: 'var(--sec-accent-bright)' }} />
           <p>
-            Set up your payout details below so earnings from tables and tickets go straight to your bank.
-            Until then, pending amounts stay in your Sec Wallet.
+            Set up your payout details below so your earnings from tables and tickets can be included in the
+            weekly Monday payout. Until then, pending amounts stay in your Sec Wallet.
           </p>
         </div>
       )}
@@ -144,7 +151,7 @@ export default function UserSecWallet({ userProfile, onProfileUpdated }) {
                         ? 'Received'
                         : tx.status === 'PROCESSING'
                           ? 'Transferring'
-                          : 'Pending')}
+                          : 'Next payout')}
                   </p>
                 </div>
               </li>

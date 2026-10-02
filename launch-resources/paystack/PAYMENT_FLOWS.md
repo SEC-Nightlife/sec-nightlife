@@ -10,11 +10,14 @@ Internal reference for Paystack activation and store compliance.
 
 ## Platform fee model
 
-- **15% SEC platform fee** on gross transaction value (embedded in customer total, not added on top)
-- **85%** paid to recipient (venue or host) via Paystack Transfers after payout setup
-- **100% to SEC** on pure platform products (promotions, boosts, certain host fees)
+- **15% SEC platform fee** on the ticket/table/menu price (embedded in that price, not added on top)
+- **85%** paid to recipient (venue or host) via weekly batched Paystack Transfers after payout setup
+- **R5 flat SEC service fee** added on top of every paid guest checkout (tickets, entrance, venue tables, table joins, hosted table menu orders). 100% SEC; covers Paystack processing (~2.9% + R1 + VAT) and the transfer fee. Non-refundable except when an event is cancelled (refunded manually by SEC support).
+- **100% to SEC** on pure platform products (promotions, boosts, certain host fees) — no service fee on these
 
-Source: `sec-night-life/backend/src/lib/platformSplit.js` — `PLATFORM_FEE_RATE = 0.15`
+Sources: `sec-night-life/backend/src/lib/platformSplit.js` — `PLATFORM_FEE_RATE = 0.15`; `sec-night-life/backend/src/lib/serviceFee.js` — `SERVICE_FEE_ZAR = 5`
+
+**Example (R10 entrance):** guest pays R15 (R10 + R5 fee). Paystack fee ≈ R1.55. Venue earns R8.50 (85% of R10), SEC keeps R1.50 + R5 = R6.50 before Paystack/transfer costs. The venue share is paid in the next Monday batch, so the R3 transfer fee is paid once per venue per week, not once per sale.
 
 ---
 
@@ -50,7 +53,11 @@ Source: `sec-night-life/backend/src/lib/platformSplit.js` — `PLATFORM_FEE_RATE
 
 ## Payouts to venues and hosts
 
-Recipients configure bank details via **Wallet / Payout Setup** in the app. SEC stores a Paystack transfer recipient code and sends **85%** of eligible transactions after successful charge. SEC's **15%** remains on the platform Paystack balance.
+Recipients configure bank details via **Wallet / Payout Setup** in the app. SEC stores a Paystack transfer recipient code. Each successful charge records the recipient share (85%, or 96% on tickets) as a **PENDING** payout ledger row — no transfer per sale.
+
+**Weekly batches:** every **Monday 07:00 UTC (09:00 SAST)** the cron `GET /api/cron/weekly-payouts` groups all PENDING rows per venue/host. If the total is **≥ R50** and a recipient code exists, SEC sends **one** Paystack Transfer (`source: balance`, reference `secbatch-<batchId>`) and creates a `payout_batches` row. Totals under R50 roll over. `transfer.success` webhooks mark the batch and all its rows **TRANSFERRED** (Received in Sec Wallet). Failed batches (e.g. low balance) are retried daily at 10:30 UTC by `GET /api/cron/retry-payouts`.
+
+SEC's **15%** and the **R5 service fee** remain on the platform Paystack balance.
 
 ---
 

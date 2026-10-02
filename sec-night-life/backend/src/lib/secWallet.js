@@ -1,6 +1,7 @@
 import crypto from 'crypto';
 import { prisma } from './prisma.js';
 import { basePaymentReference, payoutTypeLabel } from './payoutLabels.js';
+import { PAYOUT_MIN_ZAR, PAYOUT_SCHEDULE, nextPayoutDate } from './payoutSchedule.js';
 
 function randomWalletSuffix() {
   return crypto.randomBytes(4).toString('hex').toUpperCase();
@@ -71,7 +72,7 @@ export async function aggregateWalletSummary({
       ? { recipientUserId: userId }
       : { recipientVenueId: venueId };
 
-  const [pendingAgg, receivedAgg, recent] = await Promise.all([
+  const [pendingAgg, receivedAgg, recent, inTransitAgg] = await Promise.all([
     prisma.payoutLedger.aggregate({
       where: {
         ...where,
@@ -102,10 +103,21 @@ export async function aggregateWalletSummary({
       orderBy: { createdAt: 'desc' },
       take: Math.min(transactionLimit, 100),
     }),
+    prisma.payoutLedger.aggregate({
+      where: {
+        ...where,
+        status: 'PROCESSING',
+        recipientAmount: { gt: 0 },
+        recipientType: { in: ['USER', 'VENUE'] },
+      },
+      _sum: { recipientAmount: true },
+    }),
   ]);
 
   const pendingBalance = Math.round((Number(pendingAgg._sum.recipientAmount) || 0) * 100) / 100;
   const totalReceived = Math.round((Number(receivedAgg._sum.recipientAmount) || 0) * 100) / 100;
+  const inTransit = Math.round((Number(inTransitAgg._sum.recipientAmount) || 0) * 100) / 100;
+  const queuedForNextPayout = Math.max(0, Math.round((pendingBalance - inTransit) * 100) / 100);
 
   const baseRefs = [...new Set(recent.map((r) => basePaymentReference(r.paymentReference)).filter(Boolean))];
   let metaByRef = new Map();
@@ -133,7 +145,24 @@ export async function aggregateWalletSummary({
     };
   });
 
-  return { pendingBalance, totalReceived, transactions };
+  return {
+    pendingBalance,
+    totalReceived,
+    transactions,
+    ...payoutScheduleInfo(queuedForNextPayout),
+    inTransit,
+  };
+}
+
+/** Weekly payout schedule fields shared by user and venue wallet responses. */
+export function payoutScheduleInfo(queuedForNextPayout = 0) {
+  return {
+    payoutSchedule: PAYOUT_SCHEDULE,
+    payoutMinimumZar: PAYOUT_MIN_ZAR,
+    nextPayoutDate: nextPayoutDate().toISOString(),
+    queuedForNextPayout,
+    meetsPayoutMinimum: queuedForNextPayout >= PAYOUT_MIN_ZAR,
+  };
 }
 
 function payoutStatusLabel(status) {
@@ -143,10 +172,9 @@ function payoutStatusLabel(status) {
     case 'PROCESSING':
       return 'Transferring';
     case 'FAILED':
-      return 'Pending';
     case 'PENDING':
     default:
-      return 'Pending';
+      return 'Next payout';
   }
 }
 

@@ -2,10 +2,8 @@ import { prisma } from './prisma.js';
 import { logger } from './logger.js';
 import { splitPlatformGross } from './platformSplit.js';
 import { FEED_BOOST_ZAR_PER_DAY, clampBoostDays } from './feedBoost.js';
-import {
-  basePaymentReference,
-  buildPaystackTransferReason,
-} from './payoutLabels.js';
+import { PAYOUT_MIN_ZAR, groupPayoutRowsByRecipient } from './payoutSchedule.js';
+import { netOfServiceFee } from './serviceFee.js';
 
 export { splitPlatformGross, splitPlatformGross as splitSecPlatform } from './platformSplit.js';
 
@@ -83,9 +81,13 @@ export async function recordSecPlatformRevenue(paymentReference, grossZar) {
   });
 }
 
+const MISSING_RECIPIENT_MESSAGE =
+  'Missing paystack recipient code — configure payouts in account settings.';
+
 /**
- * Claim-or-create ledger row by unique paymentReference, then initiate transfer.
- * Sync API success → PROCESSING until transfer.success webhook confirms TRANSFERRED.
+ * Claim-or-create ledger row by unique paymentReference.
+ * Recipient earnings stay PENDING until the weekly batch run (runWeeklyPayoutBatches)
+ * sends one Paystack transfer per recipient.
  */
 export async function recordPayoutAndMaybeTransfer(opts) {
   const {
@@ -103,19 +105,14 @@ export async function recordPayoutAndMaybeTransfer(opts) {
     where: { paymentReference },
   });
   if (existing) {
-    if (['TRANSFERRED', 'PROCESSING', 'REFUNDED_MANUAL', 'SKIPPED_NO_RECIPIENT'].includes(existing.status)) {
-      return { status: existing.status, ledgerId: existing.id, skipped: true };
-    }
-    if (existing.status === 'PENDING' || existing.status === 'FAILED') {
-      return retryPayoutLedgerTransfer(existing.id);
-    }
     return { status: existing.status, ledgerId: existing.id, skipped: true };
   }
 
-  if (recipientType === 'PLATFORM' || recipientAmount <= 0) {
-    try {
-      const row = await prisma.payoutLedger.create({
-        data: {
+  const isPlatform = recipientType === 'PLATFORM' || recipientAmount <= 0;
+  try {
+    const row = await prisma.payoutLedger.create({
+      data: isPlatform
+        ? {
           paymentReference,
           grossAmount: grossZar,
           secAmount,
@@ -125,22 +122,8 @@ export async function recordPayoutAndMaybeTransfer(opts) {
           recipientVenueId: null,
           status: 'SKIPPED_NO_RECIPIENT',
           errorMessage: null,
-        },
-      });
-      return { status: 'SKIPPED_NO_RECIPIENT', ledgerId: row.id };
-    } catch (e) {
-      if (e?.code === 'P2002') {
-        const again = await prisma.payoutLedger.findUnique({ where: { paymentReference } });
-        return { status: again?.status, ledgerId: again?.id, skipped: true };
-      }
-      throw e;
-    }
-  }
-
-  if (!paystackRecipientCode) {
-    try {
-      const row = await prisma.payoutLedger.create({
-        data: {
+        }
+        : {
           paymentReference,
           grossAmount: grossZar,
           secAmount,
@@ -149,72 +132,22 @@ export async function recordPayoutAndMaybeTransfer(opts) {
           recipientUserId,
           recipientVenueId,
           status: 'PENDING',
-          errorMessage: 'Missing paystack recipient code — configure payouts in account settings.',
+          errorMessage: paystackRecipientCode ? null : MISSING_RECIPIENT_MESSAGE,
         },
-      });
-      logger.warn('payout pending: no recipient code', { paymentReference, recipientUserId, recipientVenueId });
-      return { status: 'PENDING', ledgerId: row.id };
-    } catch (e) {
-      if (e?.code === 'P2002') {
-        const again = await prisma.payoutLedger.findUnique({ where: { paymentReference } });
-        return { status: again?.status, ledgerId: again?.id, skipped: true };
-      }
-      throw e;
-    }
-  }
-
-  const amountKobo = Math.round(recipientAmount * 100);
-  if (amountKobo < 100) {
-    try {
-      const row = await prisma.payoutLedger.create({
-        data: {
-          paymentReference,
-          grossAmount: grossZar,
-          secAmount,
-          recipientAmount,
-          recipientType,
-          recipientUserId,
-          recipientVenueId,
-          status: 'FAILED',
-          errorMessage: 'Recipient amount below minimum transfer',
-        },
-      });
-      return { status: 'FAILED', ledgerId: row.id };
-    } catch (e) {
-      if (e?.code === 'P2002') {
-        const again = await prisma.payoutLedger.findUnique({ where: { paymentReference } });
-        return { status: again?.status, ledgerId: again?.id, skipped: true };
-      }
-      throw e;
-    }
-  }
-
-  let row;
-  try {
-    row = await prisma.payoutLedger.create({
-      data: {
-        paymentReference,
-        grossAmount: grossZar,
-        secAmount,
-        recipientAmount,
-        recipientType,
-        recipientUserId,
-        recipientVenueId,
-        status: 'PENDING',
-      },
     });
+    if (!isPlatform && !paystackRecipientCode) {
+      logger.warn('payout pending: no recipient code', { paymentReference, recipientUserId, recipientVenueId });
+    }
+    return isPlatform
+      ? { status: 'SKIPPED_NO_RECIPIENT', ledgerId: row.id }
+      : { status: 'PENDING', ledgerId: row.id, queued: true };
   } catch (e) {
     if (e?.code === 'P2002') {
       const again = await prisma.payoutLedger.findUnique({ where: { paymentReference } });
-      if (again && (again.status === 'PENDING' || again.status === 'FAILED')) {
-        return retryPayoutLedgerTransfer(again.id);
-      }
       return { status: again?.status, ledgerId: again?.id, skipped: true };
     }
     throw e;
   }
-
-  return initiateTransferForLedger(row, paystackRecipientCode);
 }
 
 /** Paystack transfer references may only use alphanumeric, underscore, and hyphen. */
@@ -226,48 +159,65 @@ export function sanitizePaystackTransferReference(raw) {
     .slice(0, 100);
 }
 
-async function initiateTransferForLedger(row, paystackRecipientCode) {
-  const amountKobo = Math.round(Number(row.recipientAmount) * 100);
-  if (!paystackRecipientCode) {
-    await prisma.payoutLedger.update({
-      where: { id: row.id },
-      data: {
-        status: 'PENDING',
-        errorMessage: 'Missing paystack recipient code — configure payouts in account settings.',
+const BATCH_REF_PREFIX = 'secbatch-';
+
+function batchIdFromTransferRef(ref) {
+  const s = String(ref || '');
+  if (!s.startsWith(BATCH_REF_PREFIX)) return null;
+  return s.slice(BATCH_REF_PREFIX.length).split('-')[0] || null;
+}
+
+function roundZar(n) {
+  return Math.round((Number(n) || 0) * 100) / 100;
+}
+
+async function resolveRecipientCodeForGroup(group) {
+  if (group.recipientVenueId) return resolveRecipientCodeForVenue(group.recipientVenueId);
+  if (group.recipientUserId) return resolveRecipientCodeForUser(group.recipientUserId);
+  return null;
+}
+
+function batchTransferReason(saleCount) {
+  const n = Number(saleCount) || 0;
+  return `SEC Nightlife · Weekly payout · ${n} sale${n === 1 ? '' : 's'}`.slice(0, 100);
+}
+
+/**
+ * Send one Paystack transfer for a batch. Claimed rows move to PROCESSING on success.
+ * On failure the batch is FAILED and its rows stay PENDING (still attached) for the daily retry.
+ */
+async function sendBatchTransfer(batchId, paystackRecipientCode) {
+  const batch = await prisma.payoutBatch.findUnique({
+    where: { id: batchId },
+    include: {
+      ledgers: {
+        where: { status: { in: ['PENDING', 'FAILED'] } },
+        select: { id: true, recipientAmount: true },
       },
-    });
-    return { status: 'PENDING', ledgerId: row.id };
-  }
-  if (amountKobo < 100) {
-    await prisma.payoutLedger.update({
-      where: { id: row.id },
-      data: { status: 'FAILED', errorMessage: 'Recipient amount below minimum transfer' },
-    });
-    return { status: 'FAILED', ledgerId: row.id };
-  }
-
-  const transferReference = sanitizePaystackTransferReference(
-    `${row.paymentReference}-payout-${row.id}`,
-  );
-
-  let transferReason = buildPaystackTransferReason({
-    paymentReference: row.paymentReference,
+    },
   });
-  try {
-    const baseRef = basePaymentReference(row.paymentReference);
-    const pay = await prisma.payment.findUnique({
-      where: { reference: baseRef },
-      select: { metadata: true },
+  if (!batch) return { skipped: true, reason: 'not_found' };
+
+  const total = roundZar(batch.ledgers.reduce((s, r) => s + (Number(r.recipientAmount) || 0), 0));
+  const amountKobo = Math.round(total * 100);
+  if (!batch.ledgers.length || amountKobo < 100) {
+    await prisma.payoutBatch.update({
+      where: { id: batch.id },
+      data: { status: 'FAILED', totalAmount: total, errorMessage: 'Closed: no payable rows left in batch' },
     });
-    if (pay?.metadata) {
-      transferReason = buildPaystackTransferReason({
-        paymentReference: row.paymentReference,
-        metadata: pay.metadata,
-      });
-    }
-  } catch {
-    // keep fallback reason
+    await prisma.payoutLedger.updateMany({
+      where: { batchId: batch.id, status: { in: ['PENDING', 'FAILED'] } },
+      data: { batchId: null },
+    });
+    return { batchId: batch.id, status: 'FAILED', skipped: true, reason: 'empty' };
   }
+
+  const baseRef = sanitizePaystackTransferReference(`${BATCH_REF_PREFIX}${batch.id}`);
+  // Paystack rejects reusing a reference after fail/reverse — append a retry suffix.
+  const transferReference = batch.paystackTransferRef
+    ? sanitizePaystackTransferReference(`${baseRef}-r${Date.now().toString(36)}`)
+    : baseRef;
+  const ledgerIds = batch.ledgers.map((r) => r.id);
 
   try {
     const transfer = await paystackFetch('/transfer', {
@@ -276,70 +226,311 @@ async function initiateTransferForLedger(row, paystackRecipientCode) {
         source: 'balance',
         amount: amountKobo,
         recipient: paystackRecipientCode,
-        reason: transferReason,
+        reason: batchTransferReason(ledgerIds.length),
         reference: transferReference,
       },
     });
-    const ref = transfer?.data?.reference || transfer?.data?.transfer_code || transferReference;
-    await prisma.payoutLedger.update({
-      where: { id: row.id },
-      data: {
-        status: 'PROCESSING',
-        paystackTransferRef: ref,
-        errorMessage: null,
-      },
+    const ref = transfer?.data?.reference || transferReference;
+    await prisma.payoutBatch.update({
+      where: { id: batch.id },
+      data: { status: 'PROCESSING', totalAmount: total, paystackTransferRef: ref, errorMessage: null },
     });
-    return { status: 'PROCESSING', ledgerId: row.id, transferRef: ref };
+    await prisma.payoutLedger.updateMany({
+      where: { id: { in: ledgerIds } },
+      data: { status: 'PROCESSING', paystackTransferRef: ref, errorMessage: null },
+    });
+    return { batchId: batch.id, status: 'PROCESSING', total, rows: ledgerIds.length, transferRef: ref };
   } catch (e) {
-    // Keep PENDING so Sec Wallet shows owed amount and cron can retry (e.g. insufficient balance).
-    const msg = e?.message || String(e);
-    await prisma.payoutLedger.update({
-      where: { id: row.id },
-      data: { status: 'PENDING', errorMessage: msg.slice(0, 2000) },
+    const msg = (e?.message || String(e)).slice(0, 2000);
+    await prisma.payoutBatch.update({
+      where: { id: batch.id },
+      data: { status: 'FAILED', totalAmount: total, paystackTransferRef: transferReference, errorMessage: msg },
     });
-    logger.error('paystack transfer failed (left PENDING for retry)', {
-      paymentReference: row.paymentReference,
+    await prisma.payoutLedger.updateMany({
+      where: { id: { in: ledgerIds } },
+      data: { status: 'PENDING', errorMessage: msg },
+    });
+    logger.error('paystack batch transfer failed (rows left PENDING for retry)', {
+      batchId: batch.id,
+      total,
       err: msg,
     });
-    return { status: 'PENDING', ledgerId: row.id, error: msg };
+    return { batchId: batch.id, status: 'FAILED', total, rows: ledgerIds.length, error: msg };
   }
 }
 
 /**
- * Retry PENDING/FAILED ledger when recipient is now available.
+ * Weekly payout run (Monday cron): group unbatched PENDING recipient rows and send
+ * one transfer per venue/user whose total is at least PAYOUT_MIN_ZAR. Smaller totals carry over.
+ */
+export async function runWeeklyPayoutBatches({ minZar = PAYOUT_MIN_ZAR, limit = 5000 } = {}) {
+  await requeueRetryableFailedPayouts({ limit: 500 });
+
+  const rows = await prisma.payoutLedger.findMany({
+    where: {
+      status: 'PENDING',
+      batchId: null,
+      recipientType: { in: ['USER', 'VENUE'] },
+      recipientAmount: { gt: 0 },
+    },
+    orderBy: { createdAt: 'asc' },
+    take: Math.min(limit, 10000),
+    select: {
+      id: true,
+      recipientType: true,
+      recipientUserId: true,
+      recipientVenueId: true,
+      recipientAmount: true,
+    },
+  });
+
+  const { eligible, carriedOver } = groupPayoutRowsByRecipient(rows, minZar);
+  const summary = {
+    scannedRows: rows.length,
+    recipients: eligible.length + carriedOver.length,
+    carriedOver: carriedOver.length,
+    batched: 0,
+    transferred: 0,
+    failed: 0,
+    missingRecipient: 0,
+    totalSentZar: 0,
+    batches: [],
+  };
+
+  for (const group of eligible) {
+    try {
+      const code = await resolveRecipientCodeForGroup(group);
+      if (!code) {
+        summary.missingRecipient += 1;
+        await prisma.payoutLedger.updateMany({
+          where: { id: { in: group.rowIds }, batchId: null, status: 'PENDING' },
+          data: { errorMessage: MISSING_RECIPIENT_MESSAGE },
+        });
+        continue;
+      }
+
+      const batch = await prisma.payoutBatch.create({
+        data: {
+          recipientType: group.recipientType,
+          recipientUserId: group.recipientUserId,
+          recipientVenueId: group.recipientVenueId,
+          totalAmount: group.total,
+          status: 'PROCESSING',
+        },
+      });
+      // Claim rows atomically so overlapping runs never double-pay a sale.
+      const claimed = await prisma.payoutLedger.updateMany({
+        where: { id: { in: group.rowIds }, batchId: null, status: 'PENDING' },
+        data: { batchId: batch.id },
+      });
+      if (claimed.count === 0) {
+        await prisma.payoutBatch.delete({ where: { id: batch.id } }).catch(() => null);
+        continue;
+      }
+
+      summary.batched += 1;
+      const result = await sendBatchTransfer(batch.id, code);
+      if (result.status === 'PROCESSING') {
+        summary.transferred += 1;
+        summary.totalSentZar = roundZar(summary.totalSentZar + (result.total || 0));
+      } else {
+        summary.failed += 1;
+      }
+      summary.batches.push({
+        batchId: batch.id,
+        recipientType: group.recipientType,
+        status: result.status,
+        total: result.total,
+        rows: result.rows,
+      });
+    } catch (e) {
+      summary.failed += 1;
+      logger.error('runWeeklyPayoutBatches group failed', { key: group.key, err: e?.message });
+    }
+  }
+
+  logger.info('weekly payout batches run', {
+    scannedRows: summary.scannedRows,
+    batched: summary.batched,
+    transferred: summary.transferred,
+    failed: summary.failed,
+    carriedOver: summary.carriedOver,
+    totalSentZar: summary.totalSentZar,
+  });
+  return summary;
+}
+
+/**
+ * Daily cron: retry FAILED batches that still hold PENDING rows (e.g. Paystack balance
+ * was short on Monday because weekend sales had not settled yet).
+ */
+export async function retryFailedPayoutBatches({ limit = 50 } = {}) {
+  const batches = await prisma.payoutBatch.findMany({
+    where: {
+      status: 'FAILED',
+      ledgers: { some: { status: { in: ['PENDING', 'FAILED'] } } },
+    },
+    orderBy: { updatedAt: 'asc' },
+    take: Math.min(limit, 100),
+    select: { id: true, recipientUserId: true, recipientVenueId: true },
+  });
+
+  let retried = 0;
+  let failed = 0;
+  let missingRecipient = 0;
+  for (const b of batches) {
+    try {
+      const code = await resolveRecipientCodeForGroup(b);
+      if (!code) {
+        missingRecipient += 1;
+        continue;
+      }
+      const result = await sendBatchTransfer(b.id, code);
+      if (result.status === 'PROCESSING') retried += 1;
+      else if (!result.skipped) failed += 1;
+    } catch (e) {
+      failed += 1;
+      logger.error('retryFailedPayoutBatches batch failed', { batchId: b.id, err: e?.message });
+    }
+  }
+  return { scanned: batches.length, retried, failed, missingRecipient };
+}
+
+/**
+ * Re-queue a single PENDING/FAILED ledger row for the next weekly payout.
+ * Kept for admin tooling; no longer sends a per-sale transfer.
  */
 export async function retryPayoutLedgerTransfer(ledgerId) {
   const row = await prisma.payoutLedger.findUnique({ where: { id: ledgerId } });
   if (!row) return { skipped: true, reason: 'not_found' };
-  if (['TRANSFERRED', 'PROCESSING', 'REFUNDED_MANUAL', 'SKIPPED_NO_RECIPIENT'].includes(row.status)) {
+  if (!['PENDING', 'FAILED'].includes(row.status)) {
     return { status: row.status, ledgerId: row.id, skipped: true };
   }
   if (row.recipientType === 'PLATFORM' || Number(row.recipientAmount) <= 0) {
     return { status: row.status, ledgerId: row.id, skipped: true };
   }
+  const code = await resolveRecipientCodeForGroup(row);
+  await prisma.payoutLedger.update({
+    where: { id: row.id },
+    data: {
+      status: 'PENDING',
+      errorMessage: code ? null : MISSING_RECIPIENT_MESSAGE,
+    },
+  });
+  return { status: 'PENDING', ledgerId: row.id, queued: true, reason: code ? 'next_payout' : 'no_recipient' };
+}
 
-  let code = null;
-  if (row.recipientVenueId) {
-    code = await resolveRecipientCodeForVenue(row.recipientVenueId);
-  } else if (row.recipientUserId) {
-    code = await resolveRecipientCodeForUser(row.recipientUserId);
-  }
-  if (!code) {
-    await prisma.payoutLedger.update({
-      where: { id: row.id },
-      data: {
-        status: 'PENDING',
-        errorMessage: 'Missing paystack recipient code — configure payouts in account settings.',
-      },
-    });
-    return { status: 'PENDING', ledgerId: row.id, skipped: true, reason: 'no_recipient' };
-  }
-
-  return initiateTransferForLedger(row, code);
+async function verifyTransferStatus(ref) {
+  const data = await paystackFetch(`/transfer/verify/${encodeURIComponent(ref)}`);
+  return {
+    status: String(data?.data?.status || '').toLowerCase(),
+    payload: {
+      reference: data?.data?.reference || ref,
+      transfer_code: data?.data?.transfer_code,
+      reason: data?.data?.reason || data?.message,
+    },
+  };
 }
 
 /**
- * Apply transfer webhook events to ledger rows.
+ * Poll Paystack for PROCESSING transfers (webhook lag / missed transfer.success).
+ * Covers weekly batches and legacy per-sale transfers.
+ */
+export async function syncProcessingPayoutTransfers({ limit = 30 } = {}) {
+  const take = Math.min(limit, 50);
+  const [batches, legacyRows] = await Promise.all([
+    prisma.payoutBatch.findMany({
+      where: { status: 'PROCESSING', paystackTransferRef: { not: null } },
+      orderBy: { updatedAt: 'asc' },
+      take,
+    }),
+    prisma.payoutLedger.findMany({
+      where: { status: 'PROCESSING', batchId: null, paystackTransferRef: { not: null } },
+      orderBy: { updatedAt: 'asc' },
+      take,
+    }),
+  ]);
+
+  let checked = 0;
+  let transferred = 0;
+  let requeued = 0;
+  let pending = 0;
+  const statuses = [];
+
+  const targets = [
+    ...batches.map((b) => ({ kind: 'batch', id: b.id, amount: b.totalAmount, ref: b.paystackTransferRef })),
+    ...legacyRows.map((r) => ({ kind: 'ledger', id: r.id, amount: r.recipientAmount, ref: r.paystackTransferRef })),
+  ];
+
+  for (const t of targets) {
+    const ref = String(t.ref || '').trim();
+    if (!ref) continue;
+    checked += 1;
+    try {
+      const { status, payload } = await verifyTransferStatus(ref);
+      statuses.push({ kind: t.kind, id: t.id, amount: t.amount, status, ref: ref.slice(0, 24) });
+      if (status === 'success') {
+        await applyTransferWebhookEvent('transfer.success', payload);
+        transferred += 1;
+      } else if (status === 'failed' || status === 'reversed' || status === 'abandoned') {
+        await applyTransferWebhookEvent(
+          status === 'reversed' ? 'transfer.reversed' : 'transfer.failed',
+          { ...payload, reason: payload.reason || status },
+        );
+        requeued += 1;
+      } else {
+        // otp, pending, receiving, etc. — leave PROCESSING
+        pending += 1;
+      }
+    } catch (e) {
+      logger.warn('syncProcessingPayoutTransfers verify failed', { kind: t.kind, id: t.id, ref, err: e?.message });
+      statuses.push({ kind: t.kind, id: t.id, amount: t.amount, status: 'verify_error', err: e?.message });
+      pending += 1;
+    }
+  }
+
+  return { checked, transferred, requeued, pending, statuses };
+}
+
+async function applyBatchTransferEvent(event, batch, transferRefStr, data) {
+  if (event === 'transfer.success') {
+    await prisma.payoutBatch.update({
+      where: { id: batch.id },
+      data: {
+        status: 'TRANSFERRED',
+        paystackTransferRef: transferRefStr || batch.paystackTransferRef,
+        errorMessage: null,
+      },
+    });
+    await prisma.payoutLedger.updateMany({
+      where: { batchId: batch.id, status: { in: ['PROCESSING', 'PENDING', 'FAILED'] } },
+      data: { status: 'TRANSFERRED', errorMessage: null },
+    });
+    return { matched: true, batchId: batch.id, status: 'TRANSFERRED' };
+  }
+
+  if (event === 'transfer.failed' || event === 'transfer.reversed') {
+    const msg = (data?.reason || data?.message || event).toString().slice(0, 2000);
+    await prisma.payoutBatch.update({
+      where: { id: batch.id },
+      data: {
+        status: 'FAILED',
+        paystackTransferRef: transferRefStr || batch.paystackTransferRef,
+        errorMessage: msg,
+      },
+    });
+    await prisma.payoutLedger.updateMany({
+      where: { batchId: batch.id, status: 'PROCESSING' },
+      data: { status: 'PENDING', errorMessage: msg },
+    });
+    return { matched: true, batchId: batch.id, status: 'FAILED' };
+  }
+
+  return { matched: true, batchId: batch.id, status: batch.status };
+}
+
+/**
+ * Apply transfer webhook events to payout batches (weekly) or legacy per-sale ledger rows.
  */
 export async function applyTransferWebhookEvent(event, data) {
   const transferRef =
@@ -348,6 +539,20 @@ export async function applyTransferWebhookEvent(event, data) {
     data?.transfer_reference ||
     null;
   const transferRefStr = typeof transferRef === 'string' ? transferRef : null;
+
+  if (transferRefStr) {
+    const batchIdHint = batchIdFromTransferRef(transferRefStr);
+    const batch = await prisma.payoutBatch.findFirst({
+      where: {
+        OR: [
+          { paystackTransferRef: transferRefStr },
+          ...(batchIdHint ? [{ id: batchIdHint }] : []),
+        ],
+      },
+    });
+    if (batch) return applyBatchTransferEvent(event, batch, transferRefStr, data);
+  }
+
   const payoutIdx = transferRefStr ? transferRefStr.lastIndexOf('-payout-') : -1;
   const ledgerIdHint = payoutIdx >= 0 ? transferRefStr.slice(payoutIdx + '-payout-'.length) : null;
   const paymentHint = payoutIdx > 0 ? transferRefStr.slice(0, payoutIdx) : null;
@@ -356,6 +561,7 @@ export async function applyTransferWebhookEvent(event, data) {
   if (transferRefStr) {
     row = await prisma.payoutLedger.findFirst({
       where: {
+        batchId: null,
         OR: [
           { paystackTransferRef: transferRefStr },
           ...(ledgerIdHint ? [{ id: ledgerIdHint }] : []),
@@ -368,6 +574,7 @@ export async function applyTransferWebhookEvent(event, data) {
     // Sanitized refs replace ":" with "-" (e.g. ref:menu → ref-menu)
     row = await prisma.payoutLedger.findFirst({
       where: {
+        batchId: null,
         OR: [
           { paymentReference: paymentHint },
           { paymentReference: paymentHint.replace(/-/g, ':') },
@@ -396,7 +603,7 @@ export async function applyTransferWebhookEvent(event, data) {
   }
 
   if (event === 'transfer.failed' || event === 'transfer.reversed') {
-    // Retryable: keep PENDING so wallet shows owed amount and cron retries.
+    // Back to PENDING so the amount joins the next weekly batch.
     await prisma.payoutLedger.update({
       where: { id: row.id },
       data: {
@@ -411,7 +618,10 @@ export async function applyTransferWebhookEvent(event, data) {
   return { matched: true, ledgerId: row.id, status: row.status };
 }
 
-/** Mark ledgers for a payment as manually refunded (no Paystack clawback). */
+/**
+ * Mark ledgers for a payment as manually refunded (no Paystack clawback).
+ * The SEC service fee row stays — it is only returned when an event is cancelled (handled by support).
+ */
 export async function markPayoutsRefundedManual(paymentReference) {
   const refs = [
     paymentReference,
@@ -424,6 +634,7 @@ export async function markPayoutsRefundedManual(paymentReference) {
         { paymentReference: { in: refs } },
         { paymentReference: { startsWith: `${paymentReference}:` } },
       ],
+      NOT: { paymentReference: `${paymentReference}:service_fee` },
       status: { not: 'REFUNDED_MANUAL' },
     },
     data: {
@@ -444,24 +655,27 @@ const RETRYABLE_FAILED_ERROR_PATTERNS = [
   /rate limit/i,
   /transfer\.failed/i,
   /transfer\.reversed/i,
+  // Small sales are now combined into a weekly batch, so per-sale minimums no longer apply.
+  /below minimum transfer/i,
 ];
 
 function isRetryableFailedPayoutError(message) {
   const msg = String(message || '');
   if (!msg) return true; // legacy FAILED with no message — allow retry
-  if (/below minimum transfer/i.test(msg)) return false;
   return RETRYABLE_FAILED_ERROR_PATTERNS.some((re) => re.test(msg));
 }
 
 /**
- * Flip legacy FAILED rows that should have stayed PENDING (insufficient balance, bad refs, etc.).
+ * Flip legacy FAILED rows back to PENDING so they join the next weekly batch.
  */
-export async function requeueRetryableFailedPayouts({ limit = 200 } = {}) {
+export async function requeueRetryableFailedPayouts({ limit = 200, where: extraWhere = {} } = {}) {
   const rows = await prisma.payoutLedger.findMany({
     where: {
       status: 'FAILED',
+      batchId: null,
       recipientType: { in: ['USER', 'VENUE'] },
       recipientAmount: { gt: 0 },
+      ...extraWhere,
     },
     orderBy: { createdAt: 'asc' },
     take: Math.min(limit, 500),
@@ -476,8 +690,8 @@ export async function requeueRetryableFailedPayouts({ limit = 200 } = {}) {
       data: {
         status: 'PENDING',
         errorMessage: row.errorMessage
-          ? `Requeued for retry: ${row.errorMessage}`.slice(0, 2000)
-          : 'Requeued for retry',
+          ? `Requeued for next payout: ${row.errorMessage}`.slice(0, 2000)
+          : 'Requeued for next payout',
       },
     });
     requeued += 1;
@@ -486,8 +700,9 @@ export async function requeueRetryableFailedPayouts({ limit = 200 } = {}) {
 }
 
 /**
- * Cron/admin: retry PENDING/FAILED payouts that now have recipient codes.
- * Optional filters scope retries after a user/venue sets up their Sec Wallet.
+ * Cron/admin/wallet-setup: tidy PENDING/FAILED payouts so they are ready for the next
+ * weekly batch (requeue retryable FAILED rows, clear "missing recipient" once a wallet exists).
+ * Does not send transfers — runWeeklyPayoutBatches does that on Mondays.
  */
 export async function retryStuckPayouts({
   limit = 50,
@@ -496,48 +711,9 @@ export async function retryStuckPayouts({
   includeOwnerVenueFallback = false,
   requeueFailed = true,
 } = {}) {
-  let requeue = { scanned: 0, requeued: 0 };
-  if (requeueFailed && !recipientUserId && !recipientVenueId) {
-    requeue = await requeueRetryableFailedPayouts({ limit: Math.min(limit * 4, 200) });
-  } else if (requeueFailed && (recipientUserId || recipientVenueId)) {
-    // Scoped: requeue matching FAILED rows first
-    const scopeWhere = {
-      status: 'FAILED',
-      recipientType: { in: ['USER', 'VENUE'] },
-      recipientAmount: { gt: 0 },
-      ...(recipientVenueId
-        ? { recipientVenueId: String(recipientVenueId) }
-        : { recipientUserId: String(recipientUserId) }),
-    };
-    const scopedFailed = await prisma.payoutLedger.findMany({
-      where: scopeWhere,
-      take: Math.min(limit, 100),
-      select: { id: true, errorMessage: true },
-    });
-    for (const row of scopedFailed) {
-      if (!isRetryableFailedPayoutError(row.errorMessage)) continue;
-      await prisma.payoutLedger.update({
-        where: { id: row.id },
-        data: {
-          status: 'PENDING',
-          errorMessage: row.errorMessage
-            ? `Requeued for retry: ${row.errorMessage}`.slice(0, 2000)
-            : 'Requeued for retry',
-        },
-      });
-      requeue.requeued += 1;
-    }
-    requeue.scanned = scopedFailed.length;
-  }
-
-  const where = {
-    status: { in: ['PENDING', 'FAILED'] },
-    recipientType: { in: ['USER', 'VENUE'] },
-    recipientAmount: { gt: 0 },
-  };
-
+  const scope = {};
   if (recipientVenueId) {
-    where.recipientVenueId = String(recipientVenueId);
+    scope.recipientVenueId = String(recipientVenueId);
   } else if (recipientUserId) {
     const userId = String(recipientUserId);
     if (includeOwnerVenueFallback) {
@@ -551,41 +727,58 @@ export async function retryStuckPayouts({
       });
       const venueIds = ownedVenues.map((v) => v.id);
       if (venueIds.length) {
-        where.OR = [
-          { recipientUserId: userId },
-          { recipientVenueId: { in: venueIds } },
-        ];
+        scope.OR = [{ recipientUserId: userId }, { recipientVenueId: { in: venueIds } }];
       } else {
-        where.recipientUserId = userId;
+        scope.recipientUserId = userId;
       }
     } else {
-      where.recipientUserId = userId;
+      scope.recipientUserId = userId;
     }
   }
+
+  const requeue = requeueFailed
+    ? await requeueRetryableFailedPayouts({ limit: Math.min(limit * 4, 200), where: scope })
+    : { scanned: 0, requeued: 0 };
 
   const rows = await prisma.payoutLedger.findMany({
-    where,
+    where: {
+      status: 'PENDING',
+      batchId: null,
+      recipientType: { in: ['USER', 'VENUE'] },
+      recipientAmount: { gt: 0 },
+      ...scope,
+    },
     orderBy: { createdAt: 'asc' },
-    take: Math.min(limit, 100),
+    take: Math.min(limit, 200),
+    select: { id: true, recipientUserId: true, recipientVenueId: true, errorMessage: true },
   });
 
-  let retried = 0;
-  let skipped = 0;
-  let failed = 0;
-
+  let readyForNextPayout = 0;
+  let missingRecipient = 0;
+  const codeCache = new Map();
   for (const row of rows) {
-    try {
-      const result = await retryPayoutLedgerTransfer(row.id);
-      if (result.skipped) skipped += 1;
-      else if (result.status === 'FAILED') failed += 1;
-      else retried += 1;
-    } catch (e) {
-      failed += 1;
-      logger.error('retryStuckPayouts row failed', { id: row.id, err: e?.message });
+    const key = row.recipientVenueId ? `V:${row.recipientVenueId}` : `U:${row.recipientUserId}`;
+    if (!codeCache.has(key)) codeCache.set(key, await resolveRecipientCodeForGroup(row));
+    const code = codeCache.get(key);
+    if (!code) {
+      missingRecipient += 1;
+      continue;
+    }
+    readyForNextPayout += 1;
+    if (row.errorMessage && /missing paystack recipient/i.test(row.errorMessage)) {
+      await prisma.payoutLedger.update({ where: { id: row.id }, data: { errorMessage: null } });
     }
   }
 
-  return { scanned: rows.length, retried, skipped, failed, requeue };
+  return {
+    scanned: rows.length,
+    retried: 0,
+    skipped: missingRecipient,
+    failed: 0,
+    readyForNextPayout,
+    missingRecipient,
+    requeue,
+  };
 }
 
 export async function resolveRecipientCodeForUser(userId) {
@@ -680,7 +873,7 @@ export async function repairMissingVenueTablePayouts({ sinceDays = 60, limit = 8
 
     const result = await ensureVenueTablePayoutLedger({
       reference: pay.reference,
-      amountZar: Number(pay.amount) || 0,
+      amountZar: netOfServiceFee(meta, pay.amount),
       venueId: String(venueId),
     });
     if (!result.skipped) repaired += 1;

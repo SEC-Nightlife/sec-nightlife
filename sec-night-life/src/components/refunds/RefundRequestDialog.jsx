@@ -198,6 +198,7 @@ export default function RefundRequestDialog({ open, onOpenChange, paymentReferen
 
   const due = selectedPayment?.venueRefundDueZar;
   const kept = selectedPayment?.platformFeeKeptZar;
+  const serviceFee = selectedPayment?.serviceFeeZar;
   const canSubmit = Boolean(selectedRef || paymentReference);
 
   return (
@@ -247,6 +248,14 @@ export default function RefundRequestDialog({ open, onOpenChange, paymentReferen
                 <span className="text-[var(--sec-text-muted)]">SEC platform fee (non-refundable)</span>
                 <span className="shrink-0">{formatZar(kept)}</span>
               </div>
+              {Number(serviceFee) > 0 ? (
+                <div className="flex justify-between gap-3 text-xs">
+                  <span className="text-[var(--sec-text-muted)]">
+                    SEC service fee (refunded only if the event is cancelled)
+                  </span>
+                  <span className="shrink-0">{formatZar(serviceFee)}</span>
+                </div>
+              ) : null}
             </div>
           ) : null}
 
@@ -290,7 +299,8 @@ export default function RefundRequestDialog({ open, onOpenChange, paymentReferen
               Refunds are handled by the venue, not SEC. If approved, the venue pays you{' '}
               <strong className="text-[var(--sec-text-primary)]">85%</strong> of the refundable amount to your Sec
               Wallet off-app (SEC keeps 15%). Joining fees are not refundable. Menu-only refunds apply when you paid
-              for venue items. Your QR/ticket access for refunded items will be revoked.
+              for venue items. The R5 SEC service fee is only refunded if the event is cancelled. Your QR/ticket
+              access for refunded items will be revoked.
             </p>
           ) : null}
 

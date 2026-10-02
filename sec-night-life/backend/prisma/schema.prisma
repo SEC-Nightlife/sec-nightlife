@@ -1489,18 +1489,49 @@ model PayoutLedger {
   status             PayoutLedgerStatus  @default(PENDING)
   paystackTransferRef String?            @map("paystack_transfer_ref")
   errorMessage       String?             @map("error_message") @db.Text
+  batchId            String?             @map("batch_id")
   createdAt          DateTime            @default(now()) @map("created_at")
   updatedAt          DateTime            @updatedAt @map("updated_at")
 
-  recipientUser  User?  @relation("PayoutRecipientUser", fields: [recipientUserId], references: [id], onDelete: SetNull)
-  recipientVenue Venue? @relation("PayoutRecipientVenue", fields: [recipientVenueId], references: [id], onDelete: SetNull)
+  recipientUser  User?        @relation("PayoutRecipientUser", fields: [recipientUserId], references: [id], onDelete: SetNull)
+  recipientVenue Venue?       @relation("PayoutRecipientVenue", fields: [recipientVenueId], references: [id], onDelete: SetNull)
+  batch          PayoutBatch? @relation(fields: [batchId], references: [id], onDelete: SetNull)
 
   @@unique([paymentReference])
   @@index([recipientUserId])
   @@index([recipientVenueId])
   @@index([status])
   @@index([createdAt])
+  @@index([batchId])
   @@map("payout_ledgers")
+}
+
+enum PayoutBatchStatus {
+  PROCESSING
+  TRANSFERRED
+  FAILED
+}
+
+/// One weekly Paystack transfer covering many ledger rows for the same venue or user.
+model PayoutBatch {
+  id                  String              @id @default(cuid())
+  recipientType       PayoutRecipientType @map("recipient_type")
+  recipientUserId     String?             @map("recipient_user_id")
+  recipientVenueId    String?             @map("recipient_venue_id")
+  totalAmount         Float               @map("total_amount")
+  status              PayoutBatchStatus   @default(PROCESSING)
+  paystackTransferRef String?             @map("paystack_transfer_ref")
+  errorMessage        String?             @map("error_message") @db.Text
+  createdAt           DateTime            @default(now()) @map("created_at")
+  updatedAt           DateTime            @updatedAt @map("updated_at")
+
+  ledgers PayoutLedger[]
+
+  @@index([status])
+  @@index([recipientUserId])
+  @@index([recipientVenueId])
+  @@index([paystackTransferRef])
+  @@map("payout_batches")
 }
 
 model FriendRequest {

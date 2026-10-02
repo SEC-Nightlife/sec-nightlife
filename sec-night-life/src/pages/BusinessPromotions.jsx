@@ -1161,7 +1161,6 @@ export default function BusinessPromotions() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [user, setUser] = useState(null);
-  const [userProfile, setUserProfile] = useState(null);
   const [selectedVenue, setSelectedVenue] = useState('');
   const [promotions, setPromotions] = useState([]);
   const [events, setEvents] = useState([]);
@@ -1178,15 +1177,13 @@ export default function BusinessPromotions() {
     })();
   }, []);
 
-  useEffect(() => {
-    if (!user?.email) return;
-    dataService.User.filter({ created_by: user.email }).then((profiles) => {
-      setUserProfile(profiles?.[0] || null);
-    }).catch(() => {});
-  }, [user?.email]);
-
-  const { venues, activeVenueId, setActiveVenueId } = useActiveVenue();
+  const { venues, activeVenue, activeVenueId, setActiveVenueId } = useActiveVenue();
   const venueScope = useBusinessVenueScope();
+  const showPayoutSetupBanner = Boolean(
+    activeVenue
+    && !venueScope.inStaffSession
+    && !(activeVenue.payout_setup_complete || activeVenue.paystack_recipient_code),
+  );
   const hasVenueScope = venueScope.inStaffSession || !!activeVenueId;
   const scopeKey = venueScope.staffContextToken || activeVenueId;
 
@@ -1384,7 +1381,7 @@ export default function BusinessPromotions() {
       />
       <div style={{ padding: '16px 16px 0' }}>
       <div style={{ marginBottom: 16 }}>
-        {!userProfile?.payment_setup_complete ? (
+        {showPayoutSetupBanner ? (
           <div className="sec-card" style={{ padding: 12, marginBottom: 10, border: '1px solid var(--sec-border)' }}>
             <p style={{ fontSize: 13, color: 'var(--sec-text-primary)' }}>
               Payout setup missing. Add details in{' '}

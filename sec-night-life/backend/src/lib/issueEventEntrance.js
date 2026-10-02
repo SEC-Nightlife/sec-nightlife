@@ -84,6 +84,8 @@ export async function computeEventEntranceCheckout(
     entranceZar,
     menuZar,
     menuItems,
+    subtotal: checkout.subtotal,
+    serviceFee: checkout.serviceFee,
     total: checkout.total,
     platformFee: checkout.platformFee,
     venueShare: checkout.venueShare,

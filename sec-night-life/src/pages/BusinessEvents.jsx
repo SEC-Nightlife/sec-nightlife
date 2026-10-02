@@ -138,7 +138,6 @@ export default function BusinessEvents() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [user, setUser] = useState(null);
-  const [userProfile, setUserProfile] = useState(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingEvent, setEditingEvent] = useState(null);
   const [form, setForm] = useState({ ...EMPTY_EVENT });
@@ -182,15 +181,13 @@ export default function BusinessEvents() {
     })();
   }, []);
 
-  useEffect(() => {
-    if (!user?.email) return;
-    dataService.User.filter({ created_by: user.email }).then((profiles) => {
-      setUserProfile(profiles?.[0] || null);
-    }).catch(() => {});
-  }, [user?.email]);
-
   const { activeVenue: venue } = useActiveVenue();
   const venueScope = useBusinessVenueScope();
+  const showPayoutSetupBanner = Boolean(
+    venue
+    && !venueScope.inStaffSession
+    && !(venue.payout_setup_complete || venue.paystack_recipient_code),
+  );
   const scopeKey = venueScope.staffContextToken || venue?.id;
   const hasVenueScope = venueScope.inStaffSession || !!venue;
 
@@ -710,7 +707,7 @@ export default function BusinessEvents() {
           <Plus size={16} className="mr-1.5" /> Create Event
         </Button>
       </div>
-      {!userProfile?.payment_setup_complete ? (
+      {showPayoutSetupBanner ? (
         <div className="rounded-xl p-3 mb-3" style={{ backgroundColor: 'var(--sec-bg-card)', border: '1px solid var(--sec-border)' }}>
           <p style={{ fontSize: 13, color: 'var(--sec-text-primary)' }}>
             Payout details missing. Your venue payouts can remain pending until setup is complete in

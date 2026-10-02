@@ -16,6 +16,7 @@ import { promoterUserIdFromMetadata, recordPromoterConversion } from './promoter
 import { buildTicketDoorContext } from './ticketDoorContext.js';
 import { logger } from './logger.js';
 import { countUserEventTierTickets, parseMaxPerUser } from './ticketTierCaps.js';
+import { netOfServiceFee } from './serviceFee.js';
 
 export function normalizeTicketTiers(raw) {
   if (Array.isArray(raw)) return raw;
@@ -431,7 +432,10 @@ export async function ensureEventTicketsForPayment(reference, paystackData = nul
     return { repaired: false };
   }
 
-  const amount = paystackData?.amount ? paystackData.amount / 100 : Number(pay.amount || 0);
+  const amount = netOfServiceFee(
+    metadata,
+    paystackData?.amount ? paystackData.amount / 100 : Number(pay.amount || 0),
+  );
   const result = await issueEventTicketsFromPayment(prisma, {
     reference,
     userId: pay.userId,

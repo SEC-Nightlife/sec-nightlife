@@ -19,6 +19,7 @@ import VenueMenuBrowser from '@/components/menu/VenueMenuBrowser';
 import MenuCheckoutLines from '@/components/checkout/MenuCheckoutLines';
 import { ticketTierAllowsMenuAddons } from '@/lib/ticketMenuAddons';
 import { isEventEnded } from '@/lib/eventLifecycle';
+import { SERVICE_FEE_LABEL, serviceFeeForSubtotal, totalWithServiceFee } from '@/lib/serviceFee';
 
 const selectContentClass =
   'bg-[var(--sec-bg-card)] border-[var(--sec-border)] text-[var(--sec-text-primary)] w-[var(--radix-select-trigger-width)]';
@@ -74,7 +75,9 @@ export default function TicketCheckout() {
   });
 
   const menuSubtotal = menuEnabled ? menuSelectionTotal(venueMenu, menuSelected) : 0;
-  const totalPrice = Math.round((ticketSubtotal + menuSubtotal) * 100) / 100;
+  const subtotalPrice = Math.round((ticketSubtotal + menuSubtotal) * 100) / 100;
+  const serviceFee = serviceFeeForSubtotal(subtotalPrice);
+  const totalPrice = totalWithServiceFee(subtotalPrice);
 
   useEffect(() => {
     setMenuSelected({});
@@ -354,6 +357,12 @@ export default function TicketCheckout() {
             </span>
           </div>
           <MenuCheckoutLines items={venueMenu} selected={menuSelected} />
+          {serviceFee > 0 ? (
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
+              <span style={{ color: 'var(--sec-text-secondary)' }}>{SERVICE_FEE_LABEL}</span>
+              <span style={{ fontWeight: 700, color: 'var(--sec-text-primary)' }}>R{serviceFee.toFixed(2)}</span>
+            </div>
+          ) : null}
           <div
             style={{
               display: 'flex',
@@ -364,7 +373,7 @@ export default function TicketCheckout() {
             }}
           >
             <span style={{ fontWeight: 600 }}>Total</span>
-            <span style={{ fontWeight: 800, fontSize: 18 }}>R{totalPrice.toFixed(0)}</span>
+            <span style={{ fontWeight: 800, fontSize: 18 }}>R{totalPrice.toFixed(2)}</span>
           </div>
         </div>
 
@@ -383,11 +392,14 @@ export default function TicketCheckout() {
                     {(Number(line.unitPrice || 0) * Number(line.quantity || 0)).toFixed(0)}
                   </div>
                 ))}
+                {serviceFee > 0 ? <div>{SERVICE_FEE_LABEL} · R{serviceFee.toFixed(2)}</div> : null}
               </div>
             ) : (
-              <div className="sec-bottom-bar__price-label">Total</div>
+              <div className="sec-bottom-bar__price-label">
+                {serviceFee > 0 ? `Total incl. R${serviceFee.toFixed(0)} service fee` : 'Total'}
+              </div>
             )}
-            <div className="sec-bottom-bar__price-value">R{totalPrice.toFixed(0)}</div>
+            <div className="sec-bottom-bar__price-value">R{totalPrice.toFixed(2)}</div>
           </div>
           <div className="sec-bottom-bar__cta">
             <button

@@ -5,6 +5,7 @@ import { logger } from '../lib/logger.js';
 import { authenticateToken } from '../middleware/auth.js';
 import { normalizeHostingConfig } from '../lib/hostingConfig.js';
 import { splitPlatformGross } from '../lib/platformSplit.js';
+import { netOfServiceFee } from '../lib/serviceFee.js';
 import {
   flattenPaymentMetadata,
   basePaymentReference,
@@ -1215,7 +1216,7 @@ router.get('/venue-analytics', authenticateToken, async (req, res, next) => {
     for (const p of ledgerPayments) {
       paymentMetaByRef.set(p.reference, flattenPaymentMetadata(p.metadata));
       paymentTypeByRef.set(p.reference, p.type);
-      paymentAmountByRef.set(p.reference, Number(p.amount) || 0);
+      paymentAmountByRef.set(p.reference, netOfServiceFee(flattenPaymentMetadata(p.metadata), p.amount));
     }
 
     /** Day-booking base refs proven via split logs on eventId-null venue tables. */
@@ -1528,7 +1529,7 @@ router.get('/venue-analytics', authenticateToken, async (req, res, next) => {
         const baseRef = p.reference ? basePaymentReference(p.reference) : null;
         if (baseRef && fullyMatchedBaseRefs.has(baseRef)) continue;
         if (isRefundedPaymentRef(p.reference, refundedRefs)) continue;
-        const amt = Number(p.amount) || 0;
+        const amt = netOfServiceFee(meta, p.amount);
         const net = netAmountFromPayment(meta, amt);
         const dayKey = p.createdAt.toISOString().slice(0, 10);
         const counted = addRevenueRow(meta, meta.type, p.type, amt, net, dayKey, p.reference);
@@ -2127,10 +2128,13 @@ router.get('/dashboard-booking-stats', authenticateToken, async (req, res, next)
               status: 'success',
               type: { in: ['ticket', 'event'] },
             },
-            select: { amount: true },
+            select: { amount: true, metadata: true },
           });
           ticketRevenueZar = roundZar(
-            ticketPayments.reduce((sum, p) => sum + (Number(p.amount) || 0), 0),
+            ticketPayments.reduce(
+              (sum, p) => sum + netOfServiceFee(flattenPaymentMetadata(p.metadata), p.amount),
+              0,
+            ),
           );
         }
         entranceFees = await prisma.ticket.count({
@@ -2337,10 +2341,10 @@ async function computeVenueDashboardStats(venueIds, year) {
           status: 'success',
           type: { in: ['ticket', 'event'] },
         },
-        select: { amount: true, createdAt: true, reference: true },
+        select: { amount: true, metadata: true, createdAt: true, reference: true },
       });
       for (const p of ticketPayments) {
-        const amt = Number(p.amount) || 0;
+        const amt = netOfServiceFee(flattenPaymentMetadata(p.metadata), p.amount);
         allTime.ticketRevenueZar += amt;
         bump(bucketMonth(p.createdAt, year), 'ticketRevenueZar', amt);
       }
@@ -2732,7 +2736,7 @@ function venueShareFromPayment(pay) {
   const meta = pay?.metadata && typeof pay.metadata === 'object' ? pay.metadata : {};
   if (meta.venue_share_zar != null) return Number(meta.venue_share_zar) || 0;
   if (meta.recipient_amount != null) return Number(meta.recipient_amount) || 0;
-  const gross = Number(pay?.amount) || 0;
+  const gross = netOfServiceFee(meta, pay?.amount);
   return splitPlatformGross(gross).recipientAmount;
 }
 
@@ -2740,7 +2744,7 @@ function platformFeeFromPayment(pay) {
   const meta = pay?.metadata && typeof pay.metadata === 'object' ? pay.metadata : {};
   if (meta.platform_fee_zar != null) return Number(meta.platform_fee_zar) || 0;
   if (meta.sec_amount != null) return Number(meta.sec_amount) || 0;
-  const gross = Number(pay?.amount) || 0;
+  const gross = netOfServiceFee(meta, pay?.amount);
   return splitPlatformGross(gross).secAmount;
 }
 
@@ -2944,7 +2948,7 @@ router.get('/ticket-bookings', authenticateToken, async (req, res, next) => {
           tickets: [],
           quantity: 0,
           admittedCount: 0,
-          grossPaidZar: pay ? Number(pay.amount) || 0 : 0,
+          grossPaidZar: pay ? netOfServiceFee(meta, pay.amount) : 0,
           venueShareZar: pay ? venueShareFromPayment(pay) : 0,
           platformFeeZar: pay ? platformFeeFromPayment(pay) : 0,
           amountPaidZar: pay ? Number(pay.amount) || 0 : 0,
@@ -3029,7 +3033,7 @@ router.get('/ticket-bookings', authenticateToken, async (req, res, next) => {
         tickets: [],
         quantity: qty,
         admittedCount: 0,
-        grossPaidZar: Number(pay.amount) || 0,
+        grossPaidZar: netOfServiceFee(meta, pay.amount),
         venueShareZar: venueShareFromPayment(pay),
         platformFeeZar: platformFeeFromPayment(pay),
         amountPaidZar: Number(pay.amount) || 0,

@@ -8,7 +8,7 @@ export default function TermsOfService() {
   return (
     <LegalDocumentPage
       title="Terms of Service"
-      effectiveDate="Effective April 2026 · SEC Nightlife (&quot;SEC&quot;, &quot;the Platform&quot;)"
+      effectiveDate="Effective October 2026 · SEC Nightlife (&quot;SEC&quot;, &quot;the Platform&quot;)"
     >
       <LegalPolicySection title="1. Acceptance of Terms">
         <p>
@@ -131,8 +131,22 @@ export default function TermsOfService() {
           platform splits (including SEC fees and partner earnings) as defined by product rules.
         </p>
         <p>
-          Eligible earnings for venues and users are transferred through configured payout recipient details. If payout
-          details are missing or invalid, transfers may remain pending until corrected in your Sec Wallet (Profile for users, Business Dashboard for venues).
+          <strong>Service fee.</strong> A flat SEC service fee of R5 is added to each paid checkout (for example tickets,
+          entrance, table bookings, table joins, and menu orders) and is shown before you pay. The service fee covers
+          payment processing and platform costs. It is separate from the venue or host price and is not shared with
+          venues or hosts. The service fee is non-refundable, except where the event is cancelled, in which case SEC
+          support will return it.
+        </p>
+        <p>
+          <strong>Weekly payouts.</strong> Eligible earnings for venues and users (including hosts) are recorded in their
+          Sec Wallet when a sale is confirmed and paid out in one combined bank transfer per recipient every Monday, once
+          the recipient&apos;s outstanding balance is at least R50. Balances below R50 roll over to the following week.
+          Payout timing may also depend on settlement by our payment partner and on bank processing times (typically
+          1–2 business days, longer over weekends or public holidays).
+        </p>
+        <p>
+          Payouts are sent to configured payout recipient details. If payout details are missing or invalid, earnings
+          remain pending until corrected in your Sec Wallet (Profile for users, Business Dashboard for venues).
         </p>
         <p>
           Users acknowledge that all financial transactions are conducted at their own risk. Disputes regarding
@@ -151,7 +165,8 @@ export default function TermsOfService() {
             Refund Policy
           </Link>
           . In general, SEC does not issue refunds as a platform operator; venues and organizers bear primary
-          responsibility for refunds where applicable.
+          responsibility for refunds where applicable. The R5 SEC service fee is only refunded when an event is
+          cancelled.
         </p>
       </LegalPolicySection>
 

@@ -18,6 +18,7 @@ import { recordVenueHostParticipation } from './tableHistory.js';
 import { windowEndInstant } from './dayBookingWindows.js';
 import { splitSecPlatform, ensureVenueTablePayoutLedger } from './paystackPayout.js';
 import { logger } from './logger.js';
+import { netOfServiceFee } from './serviceFee.js';
 
 const HOST_FULFILLMENT_TX_OPTS = { timeout: 30000, maxWait: 10000 };
 
@@ -73,7 +74,10 @@ export async function ensureVenueTableFulfillmentForPayment(reference, paystackD
     return { repaired: false, reason: 'missing_metadata' };
   }
 
-  const amount = paystackData?.amount ? paystackData.amount / 100 : Number(pay.amount || 0);
+  const amount = netOfServiceFee(
+    metadata,
+    paystackData?.amount ? paystackData.amount / 100 : Number(pay.amount || 0),
+  );
   const email = pay.email || paystackData?.customer?.email || metadata.email || 'unknown@secnightlife.app';
   let repaired = false;
   let hostFulfillmentError = null;

@@ -1,6 +1,7 @@
 import { splitTicketCheckoutAmounts } from './platformSplit.js';
 import { line, sumCheckoutLines } from './checkoutLines.js';
 import { eventHasEnded } from './ticketHelpers.js';
+import { withServiceFee } from './serviceFee.js';
 
 /** Per-tier paid menu add-ons. Legacy events with only the event flag still allow add-ons. */
 export function ticketTierAllowsMenuAddons(tier, event = null) {
@@ -161,11 +162,12 @@ export async function computeTicketCheckout(prisma, {
     menuTotal = Math.round(menuTotal * 100) / 100;
   }
 
-  const lines = [line('tickets', `${ticketTierName} ×${qty}`, ticketSubtotal)];
+  const baseLines = [line('tickets', `${ticketTierName} ×${qty}`, ticketSubtotal)];
   if (menuTotal > 0) {
-    lines.push(line('menu', 'Menu add-ons', menuTotal));
+    baseLines.push(line('menu', 'Menu add-ons', menuTotal));
   }
-  const total = Math.round((ticketSubtotal + menuTotal) * 100) / 100;
+  const subtotal = Math.round((ticketSubtotal + menuTotal) * 100) / 100;
+  const { lines, serviceFee, total } = withServiceFee(baseLines, subtotal);
   const { secAmount, recipientAmount } = splitTicketCheckoutAmounts(ticketSubtotal, menuTotal);
 
   return {
@@ -174,6 +176,8 @@ export async function computeTicketCheckout(prisma, {
     tier,
     ticketSubtotal,
     menuTotal,
+    subtotal,
+    serviceFee,
     total,
     menuLines,
     lines,
@@ -197,6 +201,8 @@ export function buildTicketPaymentMetadata(base, computed) {
     menu_total_zar: computed.menuTotal,
     selected_menu_items: computed.menuLines,
     lines: computed.lines,
+    subtotal_zar: computed.subtotal,
+    service_fee_zar: computed.serviceFee,
     amount_total_zar: gross,
     platform_fee_zar: computed.secAmount,
     venue_share_zar: computed.recipientAmount,

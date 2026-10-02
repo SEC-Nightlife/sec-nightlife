@@ -1,19 +1,23 @@
 import React from 'react';
+import { SERVICE_FEE_ZAR } from '@/lib/serviceFee';
+
+const SERVICE_FEE_NOTE = `A flat R${SERVICE_FEE_ZAR} SEC service fee is added to paid checkouts (non-refundable unless the event is cancelled).`;
 
 export const CHECKOUT_FOOTNOTES = {
   venue:
-    'Your total includes everything due now. SEC retains 15% of that amount; the venue receives 85%.',
+    `SEC retains 15% of the booking subtotal; the venue receives 85%. ${SERVICE_FEE_NOTE}`,
   venueHost:
-    'Your total includes everything due now. SEC retains 15%; the venue receives 85%. After payment you can set table rules in Host Dashboard.',
+    `SEC retains 15% of the booking subtotal; the venue receives 85%. ${SERVICE_FEE_NOTE} After payment you can set table rules in Host Dashboard.`,
   hostedJoin:
-    'Your total includes entrance (if any), joining fee, and menu items due now.',
+    `Your total includes entrance (if any), joining fee, and menu items due now. ${SERVICE_FEE_NOTE}`,
   hostedMenu:
-    'Menu orders are split 85% to the venue and 15% to SEC.',
+    `Menu orders are split 85% to the venue and 15% to SEC. ${SERVICE_FEE_NOTE}`,
 };
 
 /**
  * Checkout breakdown for table bookings.
- * SEC's 15% is taken from the total — not shown as a separate line item.
+ * SEC's 15% is taken from the subtotal — not shown as a separate line item.
+ * The flat service fee arrives from the server as its own line.
  */
 export default function CheckoutCart({
   lines = [],

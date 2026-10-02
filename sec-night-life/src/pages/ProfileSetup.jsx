@@ -1149,10 +1149,10 @@ export default function ProfileSetup() {
                   <Lock size={20} strokeWidth={1.5} style={{ color: 'var(--sec-accent-muted)', flexShrink: 0 }} />
                   <div>
                     <p style={{ fontSize: 14, color: 'var(--sec-text-primary)', margin: '0 0 8px 0' }}>
-                      Automatic payouts with Paystack
+                      Weekly payouts with Paystack
                     </p>
                     <p style={{ fontSize: 13, color: 'var(--sec-text-muted)', margin: 0, lineHeight: 1.5 }}>
-                      If you earn from paid tables and activities, your payout can be transferred automatically when your payout details are set. You can skip now and add or update details later in Sec Wallet on Profile after onboarding. See the{' '}
+                      If you earn from paid tables and activities, your earnings are paid out weekly — every Monday, once your balance is at least R50 — when your payout details are set. You can skip now and add or update details later in Sec Wallet on Profile after onboarding. See the{' '}
                       <Link to={createPageUrl('RefundPolicy')} style={{ color: 'var(--sec-accent)', textDecoration: 'underline', fontWeight: 600 }}>
                         Refund Policy
                       </Link>

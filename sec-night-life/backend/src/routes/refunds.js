@@ -17,6 +17,7 @@ import {
   validateRefundRejectPayload,
 } from '../lib/refundRejectTemplates.js';
 import { basePaymentReference } from '../lib/paymentMetadata.js';
+import { netOfServiceFee, serviceFeeFromMeta } from '../lib/serviceFee.js';
 import {
   resolveAccessibleVenueIds,
   staffHasVenuePermission,
@@ -63,9 +64,9 @@ async function appendEligiblePaymentItem(items, seenRefs, payment, userId) {
   }
 
   seenRefs.add(baseRef);
-  const grossZar =
-    check.grossAmountZar != null ? Number(check.grossAmountZar) : Number(payment.amount) || 0;
   const meta = payment.metadata && typeof payment.metadata === 'object' ? payment.metadata : {};
+  const grossZar =
+    check.grossAmountZar != null ? Number(check.grossAmountZar) : netOfServiceFee(meta, payment.amount);
   const amounts = computeRefundAmounts(grossZar, meta);
   items.push({
     reference: baseRef,
@@ -77,6 +78,7 @@ async function appendEligiblePaymentItem(items, seenRefs, payment, userId) {
     refundType: check.refundType || null,
     venueRefundDueZar: amounts.venueRefundDueZar,
     platformFeeKeptZar: amounts.platformFeeKeptZar,
+    serviceFeeZar: serviceFeeFromMeta(meta),
     refundableGrossZar: grossZar,
     label: eligiblePaymentLabel(meta, check),
   });
@@ -110,11 +112,11 @@ router.post('/request', authenticateToken, async (req, res, next) => {
       return res.status(eligibility.status || 400).json({ error: eligibility.error });
     }
 
+    const paymentMeta = payment.metadata && typeof payment.metadata === 'object' ? payment.metadata : {};
     const grossZar =
       eligibility.grossAmountZar != null
         ? Number(eligibility.grossAmountZar)
-        : Number(payment.amount) || 0;
-    const paymentMeta = payment.metadata && typeof payment.metadata === 'object' ? payment.metadata : {};
+        : netOfServiceFee(paymentMeta, payment.amount);
     const amounts = computeRefundAmounts(grossZar, paymentMeta);
 
     const refundRequest = await prisma.$transaction(async (tx) => {

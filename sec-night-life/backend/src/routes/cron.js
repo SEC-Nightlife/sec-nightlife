@@ -372,9 +372,29 @@ router.get('/retry-payouts', async (req, res, next) => {
     if (!isCronAuthorized(req)) {
       return res.status(401).json({ error: 'Unauthorized' });
     }
-    const { retryStuckPayouts } = await import('../lib/paystackPayout.js');
+    const {
+      retryStuckPayouts,
+      syncProcessingPayoutTransfers,
+      retryFailedPayoutBatches,
+    } = await import('../lib/paystackPayout.js');
+    const sync = await syncProcessingPayoutTransfers({ limit: 50 });
+    const batchRetry = await retryFailedPayoutBatches({ limit: 50 });
     const result = await retryStuckPayouts({ limit: 50 });
-    res.json(result);
+    res.json({ sync, batchRetry, ...result });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get('/weekly-payouts', async (req, res, next) => {
+  try {
+    if (!isCronAuthorized(req)) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+    const { runWeeklyPayoutBatches, syncProcessingPayoutTransfers } = await import('../lib/paystackPayout.js');
+    const sync = await syncProcessingPayoutTransfers({ limit: 50 });
+    const result = await runWeeklyPayoutBatches();
+    res.json({ sync, ...result });
   } catch (err) {
     next(err);
   }

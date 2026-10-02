@@ -8,7 +8,7 @@ export default function RefundPolicy() {
   return (
     <LegalDocumentPage
       title="Refund Policy"
-      effectiveDate="Effective April 2026 · Republic of South Africa"
+      effectiveDate="Effective October 2026 · Republic of South Africa"
     >
       <LegalPolicySection title="1. Platform Role and Limitation of Responsibility">
         <p>
@@ -47,7 +47,11 @@ export default function RefundPolicy() {
         <p>
           SEC does not process or fund refunds. If a venue approves your request, they pay you directly (typically via
           bank transfer after looking up your Sec Wallet ID). SEC retains its 15% platform fee on the original
-          transaction; the venue refund amount is 85% of what you paid.
+          transaction; the venue refund amount is 85% of the ticket, table, or menu price you paid.
+        </p>
+        <p>
+          The flat R5 SEC service fee added at checkout is non-refundable, except where the event is cancelled. In that
+          case, contact SEC support and we will return the service fee.
         </p>
         <p>
           When a refund is approved, your QR codes and tickets for that purchase are invalidated, table or ticket capacity
@@ -60,7 +64,8 @@ export default function RefundPolicy() {
         <p>
           Refund eligibility is determined solely by the venue&apos;s policies and applicable laws. Circumstances under which
           refunds may be considered can include event cancellation, venue closure, or failure to deliver the promised
-          service—subject to the venue&apos;s terms.
+          service—subject to the venue&apos;s terms. If an event is cancelled, SEC will also return the R5 service fee
+          on request.
         </p>
         <p>
           Users acknowledge that refunds will not typically be granted for reasons such as failure to attend, late
@@ -72,7 +77,8 @@ export default function RefundPolicy() {
         <p>
           SEC collects payments through payment partners (including Paystack) and applies the platform split for
           applicable transactions. Where payout recipient details are configured, eligible venue or user earnings are
-          transferred automatically according to platform rules.
+          combined and transferred weekly, every Monday, once the recipient&apos;s balance is at least R50. Smaller
+          balances roll over to the next week.
         </p>
         <p>
           If recipient setup is missing, payout records may remain in a pending state until details are added in

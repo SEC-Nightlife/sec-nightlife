@@ -9,6 +9,25 @@
 
 ---
 
+## Status (5 Aug 2026)
+
+| Check | Result |
+|-------|--------|
+| Manual Payouts (Chika) | Enabled — payouts process into Paystack Balance |
+| Preferences → Payout schedule | **Settled to Balance** (confirmed) |
+| Transfer Approval URLs (live/test) | Unchecked — leave off (app has no OTP/`finalize_transfer`) |
+| Confirm transfers before sending (OTP) | Keep **off** |
+| Live public key on API | `pk_live_…` served from `https://api.secnightlife.com` |
+| Cron `GET /api/cron/retry-payouts` | Authorized; runs daily 07:00 UTC; manual run 5 Aug retried 22 PENDING |
+| Available balance | **Topup R50** credited (5 Aug evening) |
+| Transfers smoke | Cron retry initiated **3** Veldt & Vine Transfers (R38.25 + R8.50 + R8.50) → ledger **PROCESSING** |
+| Paystack status | All three stuck on **`otp`** — dashboard “Confirm transfers before sending” is blocking auto-payouts |
+| Sec Wallet Received | After OTP is completed → `transfer.success` → **TRANSFERRED** / Received |
+
+**Founder action (required):** Open [Transfers](https://dashboard.paystack.com/#/transfers) (Live). Complete the **OTP / confirm** for the three pending sends (R38.25, R8.50, R8.50 to Veldt & Vine). Then turn **off** Preferences → **Confirm transfers before sending** so future marketplace Transfers do not need OTP (the app cannot enter OTP).
+
+---
+
 ## Money flow (intended)
 
 1. Customer pays Sec Nightlife (live charge).
@@ -64,31 +83,54 @@ If Preferences already shows Settled to Balance but bank payouts continue, ask t
 
 ---
 
-## Step 3 — Optional: Topup smoke test (proves the app, not settlement)
+## Step 3 — Topup smoke test (proves Transfers while waiting on first Balance settlement)
 
-Use only to verify Transfers API + Sec Wallet **Received** while waiting on settlement config:
+Manual Payouts is on; old Standard Bank **Paid** rows do **not** move back into Available. Until a **new** live charge settles into Available (or you Topup), venue shares stay Pending.
 
-1. Transfers → Balance → **Topup** (SA EFT; ~1% top-up fee).
-2. Fund at least **R20–R50** Available.
-3. Wait for cron/retry (or next payment path) so a **Pending** ~R8.50 venue ledger can Transfer.
-4. Check Paystack → Transfers (a send appears) and Business Dashboard → Sec Wallet → **Received**.
-
-This does **not** fix customer charges auto-paying Standard Bank. Stop live entrance tests until Available receives settlements (or you only Topup for controlled tests).
+1. Open **[Transfers → Balance](https://dashboard.paystack.com/#/transfers/balance)** (Live, Sec Nightlife).
+2. **Topup** at least **R20–R50** (SA EFT; ~1% top-up fee). Wait until **Available** shows the credit.
+3. Trigger retry: wait for daily cron (07:00 UTC) **or** eng runs `GET https://api.secnightlife.com/api/cron/retry-payouts` with `CRON_SECRET`.
+4. Confirm:
+   - Paystack → **Transfers** shows an outbound send (~R8.50 to Veldt & Vine recipient).
+   - Business Dashboard → Sec Wallet → that line is **Received**.
+5. Optional second check: one new small live entrance — net should land in **Available** (not a new full-net **Payouts → Paid** to Standard Bank); SEC fee remains in Available after the venue Transfer.
 
 ---
 
 ## Success criteria (after Settled to Balance works)
 
-After a small live sale:
-
-1. Available increases (not a new full-net **Paid** payout to Standard Bank).
-2. Paystack **Transfers** shows ~venue share to the venue recipient.
-3. Sec Wallet line → **Received**.
-4. SEC fee remains in Available (optional later withdraw to Standard Bank).
+1. Preferences stays **Settled to Balance**.
+2. Available increases after a new live sale (or Topup), not only bank **Paid** payouts.
+3. Paystack **Transfers** shows ~venue share to the venue recipient.
+4. Sec Wallet line → **Received**.
+5. SEC fee remains in Available (optional later withdraw to Standard Bank).
 
 ---
 
-## Fallback (only if Paystack refuses Settled to Balance)
+## Weekly batch payouts (from October 2026)
+
+The app no longer sends one Transfer per sale. Each sale is recorded as a PENDING payout, and every **Monday 07:00 UTC (09:00 SAST)** the cron `GET /api/cron/weekly-payouts` sends **one Transfer per venue/host** whose balance is **≥ R50** (reference `secbatch-<id>`). Smaller balances roll over to the next Monday. Guests also pay a flat **R5 SEC service fee** per checkout, which stays in Available with SEC’s platform fee.
+
+No special Paystack product is needed — batching is done by the app using the normal Transfers API. **Do not** use Paystack Bulk Transfers or the dashboard bulk upload for these payouts.
+
+### Paystack checklist (founder clicks; never share login)
+
+| Setting | Required value |
+|---------|----------------|
+| Settings → Preferences → Payout schedule | **Settled to Balance** (keep) |
+| Settings → Preferences → Confirm transfers before sending (OTP) | **Off** — the app cannot enter OTPs |
+| Transfer Approval URL (live/test) | **Unchecked** |
+| IP whitelisting for Transfers | **Off** (Vercel has no fixed IPs) |
+| Settings → API Keys & Webhooks → Live webhook URL | `https://api.secnightlife.com/api/webhooks/paystack` (must keep receiving `transfer.success`, `transfer.failed`, `transfer.reversed`) |
+| Transfers → Balance → Available | Enough on Monday morning to cover the week’s venue/host shares |
+
+**Balance tip:** weekend sales settle into Available after 1–2 business days, so some Saturday/Sunday money may not be Available by 09:00 Monday. If a batch fails for low balance, the rows stay Pending and the daily retry (10:30 UTC) sends it once funds settle. Keeping a small float (e.g. R200–R500 via Topup) avoids delays.
+
+**Manual run (eng):** `GET https://api.secnightlife.com/api/cron/weekly-payouts` with `Authorization: Bearer <CRON_SECRET>`.
+
+---
+
+## Fallback (only if Balance Transfers still impossible)
 
 Stay on Paystack; plan a later engineering change to **Transaction Splits + Subaccounts** (settle venue share at charge time). That is a separate project — do not migrate to another gateway first.
 

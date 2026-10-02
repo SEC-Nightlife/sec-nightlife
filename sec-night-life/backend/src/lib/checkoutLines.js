@@ -2,6 +2,7 @@
  * Standard Paystack / payment metadata line items for table checkout.
  */
 import { splitPlatformGross } from './platformSplit.js';
+import { isServiceFeeLine } from './serviceFee.js';
 
 export function buildTableCheckoutMetadata({
   userId,
@@ -11,9 +12,10 @@ export function buildTableCheckoutMetadata({
   settlementMode,
   lines,
 }) {
-  const amountTotalZar = lines.reduce((sum, l) => sum + Number(l.amount_zar || 0), 0);
-  const gross = Math.round(amountTotalZar * 100) / 100;
-  const { secAmount, recipientAmount } = splitPlatformGross(gross);
+  const gross = sumCheckoutLines(lines);
+  const serviceFee = sumCheckoutLines(lines.filter(isServiceFeeLine));
+  const subtotal = Math.round((gross - serviceFee) * 100) / 100;
+  const { secAmount, recipientAmount } = splitPlatformGross(subtotal);
   return {
     type: 'TABLE_CHECKOUT',
     user_id: userId,
@@ -23,7 +25,9 @@ export function buildTableCheckoutMetadata({
     settlement_mode: settlementMode || 'PREPAY_MENU',
     lines,
     amount_total_zar: gross,
-    /** Informational — SEC share embedded in amount_total_zar (not charged on top). */
+    subtotal_zar: subtotal,
+    service_fee_zar: serviceFee,
+    /** Informational — SEC share embedded in the subtotal; service fee is on top. */
     platform_fee_zar: secAmount,
     venue_share_zar: recipientAmount,
   };
@@ -105,5 +109,7 @@ export function expectedTotalFromMetadata(metadata) {
     return sumCheckoutLines(fromLines);
   }
   if (metadata?.amount_total_zar != null) return Number(metadata.amount_total_zar);
-  return sumCheckoutLines(linesFromLegacyMetadata(metadata));
+  const legacy = sumCheckoutLines(linesFromLegacyMetadata(metadata));
+  const fee = Number(metadata?.service_fee_zar) || 0;
+  return legacy > 0 && fee > 0 ? Math.round((legacy + fee) * 100) / 100 : legacy;
 }

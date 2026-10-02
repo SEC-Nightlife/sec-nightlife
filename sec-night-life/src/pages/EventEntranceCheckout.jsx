@@ -14,6 +14,7 @@ import { completePaystackCheckout } from '@/lib/completePaystackCheckout';
 import { Loader2, Ticket } from 'lucide-react';
 import { toast } from 'sonner';
 import { isEventEnded } from '@/lib/eventLifecycle';
+import { SERVICE_FEE_LABEL, serviceFeeForSubtotal, totalWithServiceFee } from '@/lib/serviceFee';
 
 export default function EventEntranceCheckout() {
   const [params] = useSearchParams();
@@ -42,7 +43,9 @@ export default function EventEntranceCheckout() {
 
   const entranceZar = Number(event?.entrance_fee_amount) || 0;
   const menuSubtotal = menuSelectionTotal(venueMenu, menuSelected);
-  const totalPrice = Math.round((entranceZar + menuSubtotal) * 100) / 100;
+  const subtotalPrice = Math.round((entranceZar + menuSubtotal) * 100) / 100;
+  const serviceFee = serviceFeeForSubtotal(subtotalPrice);
+  const totalPrice = totalWithServiceFee(subtotalPrice);
 
   const handlePay = async () => {
     if (!eventId || !event) return;
@@ -190,6 +193,12 @@ export default function EventEntranceCheckout() {
             </span>
           </div>
           <MenuCheckoutLines items={venueMenu} selected={menuSelected} />
+          {serviceFee > 0 ? (
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
+              <span style={{ color: 'var(--sec-text-secondary)' }}>{SERVICE_FEE_LABEL}</span>
+              <span style={{ fontWeight: 700, color: 'var(--sec-text-primary)' }}>R{serviceFee.toFixed(2)}</span>
+            </div>
+          ) : null}
           <div
             style={{
               display: 'flex',
@@ -201,7 +210,7 @@ export default function EventEntranceCheckout() {
           >
             <span style={{ fontWeight: 600, color: 'var(--sec-text-primary)' }}>Total</span>
             <span style={{ fontWeight: 800, fontSize: 18, color: 'var(--sec-text-primary)' }}>
-              R{totalPrice.toFixed(0)}
+              R{totalPrice.toFixed(2)}
             </span>
           </div>
         </div>
@@ -221,11 +230,14 @@ export default function EventEntranceCheckout() {
                     {(Number(line.unitPrice || 0) * Number(line.quantity || 0)).toFixed(0)}
                   </div>
                 ))}
+                {serviceFee > 0 ? <div>{SERVICE_FEE_LABEL} · R{serviceFee.toFixed(2)}</div> : null}
               </div>
             ) : (
-              <div className="sec-bottom-bar__price-label">Total</div>
+              <div className="sec-bottom-bar__price-label">
+                {serviceFee > 0 ? `Total incl. R${serviceFee.toFixed(0)} service fee` : 'Total'}
+              </div>
             )}
-            <div className="sec-bottom-bar__price-value">R{totalPrice.toFixed(0)}</div>
+            <div className="sec-bottom-bar__price-value">R{totalPrice.toFixed(2)}</div>
           </div>
           <div className="sec-bottom-bar__cta">
             <button

@@ -8,6 +8,7 @@ import {
   DialogDescription,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
+import { SERVICE_FEE_LABEL, serviceFeeForSubtotal, totalWithServiceFee } from '@/lib/serviceFee';
 
 /**
  * Ask whether to add venue menu items before joining a hosted table.
@@ -48,7 +49,9 @@ export default function HostedTableJoinWizard({
   };
 
   const menuTotal = menuSelectionChargeableTotal(venueMenu, menuSelected);
-  const payTotal = (totalOnline > 0 ? totalOnline : entranceZar + joinZar) + menuTotal;
+  const paySubtotal = (totalOnline > 0 ? totalOnline : entranceZar + joinZar) + menuTotal;
+  const serviceFee = serviceFeeForSubtotal(paySubtotal);
+  const payTotal = totalWithServiceFee(paySubtotal);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -147,10 +150,16 @@ export default function HostedTableJoinWizard({
                 <span>R{menuTotal.toFixed(0)}</span>
               </div>
             )}
+            {serviceFee > 0 && (
+              <div className="flex justify-between text-sm">
+                <span className="text-[var(--sec-text-muted)]">{SERVICE_FEE_LABEL}</span>
+                <span>R{serviceFee.toFixed(2)}</span>
+              </div>
+            )}
             {payTotal > 0 && (
               <div className="flex justify-between font-bold text-base pt-2 border-t border-[var(--sec-border)]">
                 <span>Total due now</span>
-                <span>R{payTotal.toFixed(0)}</span>
+                <span>R{payTotal.toFixed(2)}</span>
               </div>
             )}
             <Button

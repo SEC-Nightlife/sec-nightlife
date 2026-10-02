@@ -18,6 +18,7 @@ import VenueMenuBrowser from '@/components/menu/VenueMenuBrowser';
 import MenuCheckoutLines from '@/components/checkout/MenuCheckoutLines';
 import { maxTicketQuantity, ownedCountForTier, parseMaxPerUser } from '@/lib/ticketTierLimits';
 import { ticketTierAllowsMenuAddons } from '@/lib/ticketMenuAddons';
+import { SERVICE_FEE_LABEL, serviceFeeForSubtotal, totalWithServiceFee } from '@/lib/serviceFee';
 
 const selectContentClass =
   'bg-[var(--sec-bg-card)] border-[var(--sec-border)] text-[var(--sec-text-primary)] w-[var(--radix-select-trigger-width)]';
@@ -76,7 +77,9 @@ export default function TicketPurchaseButton({ event }) {
   const atPerUserCap = Boolean(selectedTierData && maxPerUser != null && maxQuantity < 1);
   const ticketSubtotal = selectedTierData ? selectedTierData.price * quantity : 0;
   const menuSubtotal = menuEnabled ? menuSelectionTotal(venueMenu, menuSelected) : 0;
-  const totalPrice = Math.round((ticketSubtotal + menuSubtotal) * 100) / 100;
+  const subtotalPrice = Math.round((ticketSubtotal + menuSubtotal) * 100) / 100;
+  const serviceFee = serviceFeeForSubtotal(subtotalPrice);
+  const totalPrice = totalWithServiceFee(subtotalPrice);
 
   useEffect(() => {
     if (maxQuantity >= 1 && quantity > maxQuantity) setQuantity(maxQuantity);
@@ -379,13 +382,19 @@ export default function TicketPurchaseButton({ event }) {
                 background: 'rgba(0,0,0,0.35)',
               }}
             >
-              {menuSubtotal > 0 ? (
+              {menuSubtotal > 0 || serviceFee > 0 ? (
                 <>
                   <div className="flex items-center justify-between text-sm mb-1">
                     <span style={{ color: 'var(--sec-text-muted)' }}>Tickets</span>
                     <span style={{ color: 'var(--sec-text-primary)' }}>R{ticketSubtotal.toLocaleString()}</span>
                   </div>
                   <MenuCheckoutLines items={venueMenu} selected={menuSelected} />
+                  {serviceFee > 0 ? (
+                    <div className="flex items-center justify-between text-sm mb-1">
+                      <span style={{ color: 'var(--sec-text-muted)' }}>{SERVICE_FEE_LABEL}</span>
+                      <span style={{ color: 'var(--sec-text-primary)' }}>R{serviceFee.toFixed(2)}</span>
+                    </div>
+                  ) : null}
                 </>
               ) : null}
               <div className="flex items-center justify-between mb-3">

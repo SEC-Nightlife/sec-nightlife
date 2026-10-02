@@ -94,7 +94,7 @@ export const HELP_FAQS = [
     audience: 'partygoer',
     question: 'How do I set up my Sec Wallet for payouts?',
     answer:
-      'Open Profile → Wallet, enter your bank details, and save. You will see “Sec wallet set” with a tick — account numbers are not shown again. Once set, eligible earnings can transfer automatically: Pending shows in Sec Wallet right away; Received means the bank transfer was sent. Your bank may take 1–2 business days to show the credit. Tap Update Sec wallet to replace your payout details.',
+      'Open Profile → Wallet, enter your bank details, and save. You will see “Sec wallet set” with a tick — account numbers are not shown again. Once set, your earnings are paid out weekly: every Monday SEC sends one combined transfer if your balance is at least R50 (smaller balances roll over). Pending shows in Sec Wallet right away; Received means the bank transfer was sent. Your bank may take 1–2 business days to show the credit. Tap Update Sec wallet to replace your payout details.',
     articleId: 'payouts',
   },
   {
@@ -143,7 +143,7 @@ export const HELP_FAQS = [
     audience: 'venue',
     question: 'Who receives payout money?',
     answer:
-      'Your venue’s Paystack recipient receives the venue share of eligible bookings (typically 85%, or 96% on ticket tiers). Boosts and promo fees stay with SEC.',
+      'Your venue’s Paystack recipient receives the venue share of eligible bookings (typically 85%, or 96% on ticket tiers), paid out in one combined transfer every Monday once the balance is at least R50. Boosts, promo fees, and the R5 guest service fee stay with SEC.',
     articleId: 'payouts',
   },
   {
@@ -167,7 +167,7 @@ export const HELP_FAQS = [
     audience: 'venue',
     question: 'Why is a payout pending?',
     answer:
-      'Often Sec Wallet bank details are missing on Business Dashboard → Sec Wallet — set them so transfers can start. Pending can also mean the transfer is still waiting to be sent, or it was sent (Received in Sec Wallet) but your bank has not credited you yet (often 1–2 business days). Match amounts in Sec Wallet earnings with your bank statement.',
+      'Payouts are sent weekly, every Monday, once your balance is at least R50 — until then earnings show as Pending (Next payout). Pending can also mean Sec Wallet bank details are missing on Business Dashboard → Sec Wallet — set them so the next weekly payout can be sent. It can also mean the transfer is still waiting to be sent, or it was sent (Received in Sec Wallet) but your bank has not credited you yet (often 1–2 business days). Match amounts in Sec Wallet earnings with your bank statement.',
     articleId: 'payouts',
   },
   {
@@ -175,7 +175,7 @@ export const HELP_FAQS = [
     audience: 'venue',
     question: 'How do I set up the venue Sec Wallet?',
     answer:
-      'Open Business Dashboard → Sec Wallet, enter account name, account number, and bank code, then save. You will see “Venue Sec wallet set” — bank numbers are not shown again. If you own multiple venues, set Sec Wallet for each venue separately (bank details are not shared). Updating replaces that venue’s payout destination. After setup, Pending shows money owed; Received means the transfer was sent — bank credit may take 1–2 business days.',
+      'Open Business Dashboard → Sec Wallet, enter account name, account number, and bank code, then save. You will see “Venue Sec wallet set” — bank numbers are not shown again. If you own multiple venues, set Sec Wallet for each venue separately (bank details are not shared). Updating replaces that venue’s payout destination. After setup, Pending shows money owed for the next weekly payout (every Monday, minimum R50); Received means the transfer was sent — bank credit may take 1–2 business days.',
     articleId: 'payouts',
   },
   {
@@ -193,6 +193,22 @@ export const HELP_FAQS = [
     answer:
       'Yes, if they have the refund_requests permission. Only grant this to trusted managers.',
     articleId: 'venue-staff-permissions',
+  },
+  {
+    id: 'faq-service-fee',
+    audience: 'both',
+    question: 'What is the R5 SEC service fee?',
+    answer:
+      'A flat R5 fee is added to each paid checkout (tickets, entrance, tables, table joins, and menu orders). It covers payment processing and platform costs, is shown before you pay, and does not reduce the venue’s or host’s share. It is only refunded if the event is cancelled — contact SEC support in that case.',
+    articleId: 'payouts',
+  },
+  {
+    id: 'faq-weekly-payouts',
+    audience: 'both',
+    question: 'When are payouts sent?',
+    answer:
+      'Every Monday morning SEC sends one combined bank transfer per venue or host for everything owed, once the balance is at least R50. Smaller balances roll over to the next week. Your bank may take 1–2 business days to show the credit.',
+    articleId: 'payouts',
   },
 ];
 

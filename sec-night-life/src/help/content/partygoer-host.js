@@ -238,13 +238,13 @@ export const secWalletPartygoer = {
   audience: 'partygoer',
   category: 'payments',
   title: 'Your Sec Wallet',
-  summary: 'Wallet code for refunds and payout details for automatic earnings transfers (Pending in-app; bank credit may take 1–2 business days).',
+  summary: `Wallet code for refunds and payout details for weekly earnings payouts (every ${F.payoutDay}, minimum R${F.payoutMinZar}; bank credit may take 1–2 business days).`,
   readMinutes: 3,
-  keywords: ['sec wallet', 'wallet code', 'payout', 'refund payment', 'automatic transfer', 'pending', 'bank'],
+  keywords: ['sec wallet', 'wallet code', 'payout', 'refund payment', 'automatic transfer', 'weekly payout', 'pending', 'bank'],
   sections: [
     {
       type: 'p',
-      text: 'Your Sec Wallet holds a lookup code venues use when paying approved refunds, plus payout recipient setup for earnings (for example host joining-fee share). Once bank details are set, eligible earnings can transfer automatically. Pending shows money owed in SEC right away; Received means the bank transfer was sent. Your bank may take 1–2 business days to show the credit — match amounts in Sec Wallet with your statement (look for SEC Nightlife when available). After you save payout details, you will see “Sec wallet set” — your full bank number is not shown again.',
+      text: 'Your Sec Wallet holds a lookup code venues use when paying approved refunds, plus payout recipient setup for earnings (for example host joining-fee share). Once bank details are set, your earnings are paid out weekly: every Monday SEC sends one combined transfer if your balance is at least R50 (smaller balances roll over). Pending shows money owed in SEC right away; Received means the bank transfer was sent. Your bank may take 1–2 business days to show the credit — match amounts in Sec Wallet with your statement (look for SEC Nightlife when available). After you save payout details, you will see “Sec wallet set” — your full bank number is not shown again.',
     },
     {
       type: 'image',

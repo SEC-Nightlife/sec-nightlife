@@ -48,6 +48,7 @@ import {
 } from '../lib/menuHelpers.js';
 import { refreshHostedTableTickets } from '../lib/ticketHelpers.js';
 import { buildPaystackInitializeBody } from '../lib/paystackInitialize.js';
+import { SERVICE_FEE_ZAR, serviceFeeForSubtotal } from '../lib/serviceFee.js';
 import { canJoinTablesAsGuest, staffHasVenuePermission } from '../lib/access.js';
 import {
   parseGuestCountFromSpecs,
@@ -650,6 +651,7 @@ router.get('/hosted-tables/:tableId', optionalAuth, async (req, res, next) => {
         tier_min_spend_zar: tierMin,
         min_spend_per_person_zar: minSpendPerPerson,
         total_pay_online_zar: totalPayOnlineZar,
+        service_fee_zar: SERVICE_FEE_ZAR,
       },
     });
   } catch (e) {
@@ -687,9 +689,11 @@ router.post('/tables/:tableId/menu-order', authenticateToken, requireVerified, a
     if (menuResolved.totalZar <= 0) {
       return res.status(400).json({ error: 'Select at least one menu item.' });
     }
+    const menuServiceFee = serviceFeeForSubtotal(menuResolved.totalZar);
+    const menuChargeZar = Math.round((menuResolved.totalZar + menuServiceFee) * 100) / 100;
     const pay = await initializePaystackPayment({
       userId: req.userId,
-      amountZar: menuResolved.totalZar,
+      amountZar: menuChargeZar,
       metadata: {
         type: 'HOSTED_TABLE_MENU',
         hosted_table_id: ht.id,
@@ -698,14 +702,17 @@ router.post('/tables/:tableId/menu-order', authenticateToken, requireVerified, a
         venue_id: menuVenueId,
         is_day_booking: !ht.event?.id,
         menu_zar: menuResolved.totalZar,
-        amount_total_zar: menuResolved.totalZar,
+        subtotal_zar: menuResolved.totalZar,
+        service_fee_zar: menuServiceFee,
+        amount_total_zar: menuChargeZar,
         selected_menu_items: menuResolved.items,
         user_id: req.userId,
       },
     });
     res.json({
       pendingPayment: true,
-      amount_zar: menuResolved.totalZar,
+      amount_zar: menuChargeZar,
+      service_fee_zar: menuServiceFee,
       reference: pay.reference,
       access_code: pay.access_code,
       items: menuResolved.items,
@@ -1167,14 +1174,21 @@ router.post('/parties/:partyId/join', authenticateToken, requireVerified, async 
         create: { housePartyId: partyId, userId: req.userId, status: 'PENDING' },
         update: { status: 'PENDING' },
       });
+      const partyEntranceZar = Number(party.entranceFeeAmount);
+      const partyServiceFee = serviceFeeForSubtotal(partyEntranceZar);
+      const partyChargeZar = Math.round((partyEntranceZar + partyServiceFee) * 100) / 100;
       const pay = await initializePaystackPayment({
         userId: req.userId,
-        amountZar: Number(party.entranceFeeAmount),
+        amountZar: partyChargeZar,
         metadata: {
           type: 'HOUSE_PARTY_ENTRANCE',
           house_party_id: partyId,
           attendee_id: pending.id,
           user_id: req.userId,
+          entrance_zar: partyEntranceZar,
+          subtotal_zar: partyEntranceZar,
+          service_fee_zar: partyServiceFee,
+          amount_total_zar: partyChargeZar,
         },
       });
       return res.json({ status: 'PENDING_PAYMENT', ...pay });
@@ -2202,9 +2216,11 @@ router.post('/tables/:tableId/join/checkout', authenticateToken, requireVerified
       });
     }
 
+    const joinServiceFee = serviceFeeForSubtotal(payZar);
+    const chargeZar = Math.round((payZar + joinServiceFee) * 100) / 100;
     const pay = await initializePaystackPayment({
       userId: req.userId,
-      amountZar: payZar,
+      amountZar: chargeZar,
       metadata: {
         type: 'HOSTED_TABLE_JOIN',
         hosted_table_id: t.id,
@@ -2217,7 +2233,9 @@ router.post('/tables/:tableId/join/checkout', authenticateToken, requireVerified
         entrance_zar: entranceZar,
         join_zar: joinZar,
         menu_zar: menuZar,
-        amount_total_zar: payZar,
+        subtotal_zar: payZar,
+        service_fee_zar: joinServiceFee,
+        amount_total_zar: chargeZar,
         user_id: req.userId,
         selected_menu_items: menuResolved.items.length ? menuResolved.items : undefined,
         ...promoterMetaFromBody(req.body),
@@ -2227,7 +2245,7 @@ router.post('/tables/:tableId/join/checkout', authenticateToken, requireVerified
       where: { id: member.id },
       data: { paystackReference: pay.reference },
     });
-    res.json({ pendingPayment: true, amount_zar: payZar, ...pay });
+    res.json({ pendingPayment: true, amount_zar: chargeZar, service_fee_zar: joinServiceFee, ...pay });
   } catch (e) {
     next(e);
   }
@@ -2363,9 +2381,11 @@ router.post('/tables/:tableId/join', authenticateToken, requireVerified, async (
       } else {
         return res.status(400).json({ error: 'Already a member' });
       }
+      const joinServiceFee = serviceFeeForSubtotal(payZarJoin);
+      const chargeZarJoin = Math.round((payZarJoin + joinServiceFee) * 100) / 100;
       const pay = await initializePaystackPayment({
         userId: req.userId,
-        amountZar: payZarJoin,
+        amountZar: chargeZarJoin,
         metadata: {
           type: 'HOSTED_TABLE_JOIN',
           hosted_table_id: t.id,
@@ -2378,13 +2398,21 @@ router.post('/tables/:tableId/join', authenticateToken, requireVerified, async (
           entrance_zar: entranceZarJoin,
           join_zar: joinZarJoin,
           menu_zar: menuZarJoin,
-          amount_total_zar: payZarJoin,
+          subtotal_zar: payZarJoin,
+          service_fee_zar: joinServiceFee,
+          amount_total_zar: chargeZarJoin,
           user_id: req.userId,
           selected_menu_items: menuResolved.items.length ? menuResolved.items : undefined,
           ...promoterMetaFromBody(req.body),
         },
       });
-      return res.json({ joined: false, pendingPayment: true, amount_zar: payZarJoin, ...pay });
+      return res.json({
+        joined: false,
+        pendingPayment: true,
+        amount_zar: chargeZarJoin,
+        service_fee_zar: joinServiceFee,
+        ...pay,
+      });
     }
     if (t.spotsRemaining <= 0) return res.status(400).json({ error: 'Table not available' });
     if (existing && !(resurrectedFromCancelled && existing.status === 'PENDING')) {
@@ -2682,9 +2710,12 @@ router.patch('/tables/invites/:inviteId/respond', authenticateToken, async (req,
         where: { id: inv.id },
         data: { status: 'ACCEPTED', respondedAt: new Date() },
       });
+      const subtotalInv = entranceZarInv + joinZarInv;
+      const inviteServiceFee = serviceFeeForSubtotal(subtotalInv);
+      const chargeZarInv = Math.round((subtotalInv + inviteServiceFee) * 100) / 100;
       const pay = await initializePaystackPayment({
         userId: req.userId,
-        amountZar: entranceZarInv + joinZarInv,
+        amountZar: chargeZarInv,
         metadata: {
           type: 'HOSTED_TABLE_JOIN',
           hosted_table_id: table.id,
@@ -2696,7 +2727,9 @@ router.patch('/tables/invites/:inviteId/respond', authenticateToken, async (req,
           member_role: 'GUEST',
           entrance_zar: entranceZarInv,
           join_zar: joinZarInv,
-          amount_total_zar: entranceZarInv + joinZarInv,
+          subtotal_zar: subtotalInv,
+          service_fee_zar: inviteServiceFee,
+          amount_total_zar: chargeZarInv,
           user_id: req.userId,
         },
       });

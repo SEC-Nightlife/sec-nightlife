@@ -2,6 +2,7 @@ import { line, sumCheckoutLines } from './checkoutLines.js';
 import { splitPlatformGross } from './platformSplit.js';
 import { getEventEntranceZar } from './hostedTableSecFees.js';
 import { prisma } from './prisma.js';
+import { withServiceFee } from './serviceFee.js';
 
 /**
  * Whether the user already paid standalone entrance (or has an entrance booking) for this event.
@@ -32,7 +33,7 @@ export async function userHasPaidEventEntrance(userId, eventId, db = prisma) {
 
 /**
  * Build checkout lines for standalone event entrance (+ optional menu).
- * SEC 15% / venue 85% on the full gross.
+ * SEC 15% / venue 85% on the subtotal; the flat SEC service fee is added on top.
  */
 export function computeEntranceCheckout({
   entranceZar = 0,
@@ -63,15 +64,17 @@ export function computeEntranceCheckout({
   const subtotal = sumCheckoutLines(chargeable);
   const { secAmount: platformFee, recipientAmount: venueShare } =
     subtotal > 0 ? splitPlatformGross(subtotal) : { secAmount: 0, recipientAmount: 0 };
+  const withFee = withServiceFee(chargeable.length ? chargeable : lines, subtotal);
   return {
-    lines: chargeable.length ? chargeable : lines,
-    displayLines: lines,
+    lines: withFee.lines,
+    displayLines: withFee.serviceFee > 0 ? [...lines, ...withFee.lines.slice(-1)] : lines,
     entranceZar: entrance,
     menuZar: menu,
     subtotal,
+    serviceFee: withFee.serviceFee,
     platformFee,
     venueShare,
-    total: subtotal,
+    total: withFee.total,
   };
 }
 
