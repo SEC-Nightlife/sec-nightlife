@@ -1,5 +1,6 @@
 import { prisma } from './prisma.js';
 import { resolveDailySessionNumber } from './dailyTableSession.js';
+import { netOfServiceFee } from './serviceFee.js';
 
 /**
  * Idempotent log for venue dashboard: SEC event hosted table host or paid guest.
@@ -189,7 +190,7 @@ export async function repairGuestEventVenueTableBookingsForEvents(eventIds = [])
       venueTableId: String(venueTableId),
       userId: String(userId),
       paystackReference: pay.reference,
-      amountTotal: Number(pay.amount) || 0,
+      amountTotal: netOfServiceFee(flat, pay.amount),
       selectedMenuItems: flat.selectedMenuItems || flat.selected_menu_items,
       bookingMode,
       memberRole,

@@ -3,6 +3,7 @@ import { flattenPaymentMetadata, basePaymentReference } from './paymentMetadata.
 import { parseMenuItemLines } from './orderFulfillment.js';
 import { isRefundedPaymentRef, loadRefundedPaymentRefs } from './refunds.js';
 import { currentClockSast, formatYmdSast } from './dayBookingWindows.js';
+import { netOfServiceFee } from './serviceFee.js';
 
 const CSV_BOM = '\uFEFF';
 
@@ -523,7 +524,7 @@ export async function buildEventPurchaseLog(event) {
       hostFeeZar: Number(meta.host_table_fee_zar || meta.host_fee_zar || 0) || 0,
       minSpendZar: Number(meta.minimum_spend_zar || meta.min_spend_zar || 0) || 0,
       bookingFeeZar: Number(meta.booking_fee_zar || meta.custom_table_booking_fee_zar || 0) || 0,
-      amountZar: Number(pay.amount) || 0,
+      amountZar: netOfServiceFee(meta, pay.amount),
       paidAt: pay.createdAt,
       paymentReference: canon,
       refunded,
