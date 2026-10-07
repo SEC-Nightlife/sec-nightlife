@@ -24,6 +24,8 @@ import { toast } from 'sonner';
 
 import InviteFriendsDialog from '@/components/tables/InviteFriendsDialog';
 import HostedTableExperience from '@/components/tables/HostedTableExperience';
+import AddonOrdersList from '@/components/orders/AddonOrdersList';
+import OrderMoreDialog from '@/components/orders/OrderMoreDialog';
 import SeatingPlanViewer from '@/components/seating/SeatingPlanViewer';
 import { normalizeGuestSeatingPlans } from '@/lib/seatingPlanUtils';
 import RefundPolicyNote from '@/components/legal/RefundPolicyNote';
@@ -31,11 +33,10 @@ import { launchPaystackInline, loadPaystackScript } from '@/lib/paystackInline';
 import { completePaystackCheckout } from '@/lib/completePaystackCheckout';
 import QRCode from 'qrcode';
 import { resolveTicketVerifyUrl } from '@/utils';
-import MenuPicker, { menuSelectionToPayload, menuSelectionChargeableTotal } from '@/components/menu/MenuPicker';
 import VenueMenuBrowser, { getVenueMenuCartStats } from '@/components/menu/VenueMenuBrowser';
 import TableCheckoutFooter from '@/components/menu/TableCheckoutFooter';
 import { mobileFooterPadding, MOBILE_NAV_BOTTOM_OFFSET } from '@/lib/layoutConstants';
-import CheckoutCart, { CHECKOUT_FOOTNOTES } from '@/components/checkout/CheckoutCart';
+import CheckoutCart from '@/components/checkout/CheckoutCart';
 import { CustomTableRequestForm } from '@/components/tables/CustomTableRequestModal';
 import DayBookingTimeSlotPicker, { isWindowValid } from '@/components/tables/DayBookingTimeSlotPicker';
 import { getDirectionsActions } from '@/lib/openDirections';
@@ -411,6 +412,8 @@ export default function TableDetails() {
         ? 4000
         : false,
   });
+
+  const [orderMoreOpen, setOrderMoreOpen] = useState(false);
 
   useEffect(() => {
     if (urlParams.get('request') === '1') {
@@ -1096,6 +1099,25 @@ export default function TableDetails() {
                     ? 'Your QR ticket is in Profile → Tickets. Use Host Dashboard to approve join requests and set your table rules.'
                     : 'Your QR ticket is in Profile → Tickets.'}
                 </p>
+                {hostCheckoutTicket?.id && venueMembership?.status === 'CONFIRMED' ? (
+                  <div style={{ marginBottom: 12 }}>
+                    <AddonOrdersList ticketId={hostCheckoutTicket.id} className="mb-3" />
+                    <button
+                      type="button"
+                      className="sec-btn sec-btn-secondary sec-btn-full"
+                      style={{ height: 44 }}
+                      onClick={() => setOrderMoreOpen(true)}
+                    >
+                      Order more from the menu
+                    </button>
+                    <OrderMoreDialog
+                      open={orderMoreOpen}
+                      onOpenChange={setOrderMoreOpen}
+                      ticketId={hostCheckoutTicket.id}
+                      email={user?.email}
+                    />
+                  </div>
+                ) : null}
                 {isHostCheckout ? (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                     <button

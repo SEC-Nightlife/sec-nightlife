@@ -82,6 +82,8 @@ export function hostInstructionsForKind(kind) {
       return 'Event door: check event code and tier on ticket; ID must match guest name.';
     case 'EXTERNAL_HOSTED_LISTING':
       return 'External listing: confirm venue name with the host’s published details.';
+    case 'MENU_ADDON':
+      return 'Add-on order only — this QR does not admit entry. Hand over the items listed, then mark the order fulfilled.';
     default:
       return 'Confirm guest identity and booking details before entry.';
   }

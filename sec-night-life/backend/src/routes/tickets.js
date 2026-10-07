@@ -217,6 +217,7 @@ router.get('/qr', optionalAuth, async (req, res, next) => {
         check_location_line: door.check_location_line,
         door_verify_summary,
         host_instructions,
+        order_only: t.kind === 'MENU_ADDON',
         viewer_authenticated: !!req.userId,
         can_admit_here: false,
         admit_denied_for_viewer: false,
@@ -248,7 +249,8 @@ router.get('/qr', optionalAuth, async (req, res, next) => {
     let can_admit_here = false;
     let admit_denied_for_viewer = false;
     let admit_denied_reason = null;
-    if (req.userId && entryValidity.ok && !t.admittedAt) {
+    const orderOnly = t.kind === 'MENU_ADDON';
+    if (req.userId && entryValidity.ok && !t.admittedAt && !orderOnly) {
       const perm = await assertAdmitPermission(prisma, req.userId, req.userRole, t, door);
       can_admit_here = perm.ok;
       if (!perm.ok) {
@@ -267,6 +269,7 @@ router.get('/qr', optionalAuth, async (req, res, next) => {
       check_location_line: door.check_location_line,
       door_verify_summary,
       host_instructions,
+      order_only: orderOnly,
       viewer_authenticated,
       can_admit_here,
       admit_denied_for_viewer,

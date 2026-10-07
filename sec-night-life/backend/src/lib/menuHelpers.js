@@ -1,5 +1,10 @@
 import { prisma } from './prisma.js';
-import { formatVenueMenuItemForGuestMenu } from './menuSpecials.js';
+import { formatVenueMenuItemForGuestMenu, resolveMenuSpecialState } from './menuSpecials.js';
+
+/** Price a guest pays right now (special price inside an active special window). */
+export function chargeableMenuUnitPrice(row) {
+  return Number(resolveMenuSpecialState(row).displayPrice);
+}
 
 /** Live venue menu for guest browse/checkout (full catalog, not table-scoped subsets). */
 export async function fetchGuestVenueMenuItems(venueId) {
@@ -35,16 +40,22 @@ export function guestMenuItemToTableShape(item, venueTableId) {
 /**
  * @param {Array<{ menuItemId: string, quantity: number }>} selections
  * @param {string} venueId
+ * @param {{ guestVisibleOnly?: boolean }} [opts] reject items hidden from the guest menu
  */
-export async function resolveVenueMenuSelections(selections, venueId) {
+export async function resolveVenueMenuSelections(selections, venueId, opts = {}) {
   if (!Array.isArray(selections) || selections.length === 0) {
     return { items: [], totalZar: 0 };
   }
   const ids = selections.map((s) => s.menuItemId).filter(Boolean);
   const menuRows = await prisma.venueMenuItem.findMany({
     where: { id: { in: ids }, venueId, isAvailable: true },
+    include: opts.guestVisibleOnly ? { catalogItem: { select: { imageUrl: true } } } : undefined,
   });
-  const map = new Map(menuRows.map((m) => [m.id, m]));
+  const map = new Map(
+    menuRows
+      .filter((m) => !opts.guestVisibleOnly || formatVenueMenuItemForGuestMenu(m, m.catalogItem).guest_visible)
+      .map((m) => [m.id, m]),
+  );
   const items = [];
   let totalZar = 0;
   for (const sel of selections) {
@@ -55,12 +66,13 @@ export async function resolveVenueMenuSelections(selections, venueId) {
       throw err;
     }
     const qty = Math.max(1, Math.floor(Number(sel.quantity) || 0));
-    const line = qty * Number(row.price);
+    const unitPrice = chargeableMenuUnitPrice(row);
+    const line = Math.round(qty * unitPrice * 100) / 100;
     totalZar += line;
     items.push({
       menuItemId: row.id,
       quantity: qty,
-      unitPrice: Number(row.price),
+      unitPrice,
       name: row.name,
       image_url: row.imageUrl,
       category: row.category,

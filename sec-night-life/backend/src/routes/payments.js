@@ -115,6 +115,17 @@ import {
   buildPaystackInitializeBody,
 } from '../lib/paystackInitialize.js';
 import { netOfServiceFee, serviceFeeFromMeta } from '../lib/serviceFee.js';
+import { applyMenuAddonPayment, isMenuAddonFulfilled, MENU_ADDON_TYPE } from '../lib/addonOrders.js';
+
+/** Checkout types that only server routes may create (client-supplied metadata would bypass pricing). */
+const SERVER_ONLY_PAYMENT_TYPES = new Set([
+  MENU_ADDON_TYPE,
+  'HOSTED_TABLE_MENU',
+  'TABLE_CHECKOUT',
+  'VENUE_TABLE_JOIN',
+  'HOSTED_TABLE_JOIN',
+  'HOSTED_TABLE_EXTERNAL_LISTING',
+]);
 
 const router = Router();
 
@@ -587,6 +598,18 @@ async function applyReferenceSideEffects(reference, paystackData) {
     }
   }
 
+  if (metadata.type === MENU_ADDON_TYPE) {
+    const res = await applyMenuAddonPayment({
+      reference,
+      chargedAmountZar: chargedAmount,
+      metadata,
+      email,
+    });
+    if (!res.applied && res.reason !== 'refunded') {
+      throw new Error(`MENU_ADDON side effects not applied: ${res.reason}`);
+    }
+  }
+
   if (metadata.type === 'HOSTED_TABLE_MENU' && userId) {
     const htid = metadata.hosted_table_id || metadata.hostedTableId;
     const memberId = metadata.hosted_table_member_id || metadata.hostedTableMemberId;
@@ -599,10 +622,14 @@ async function applyReferenceSideEffects(reference, paystackData) {
       const alreadyMenu = await prisma.payoutLedger.findFirst({
         where: { paymentReference: reference },
       });
-      if (mem && mem.status === 'GOING' && !alreadyMenu) {
+      // Legacy in-flight menu payments: paid money is honoured even if the guest left the table.
+      if (mem && !alreadyMenu) {
         const added = metadata.selected_menu_items || metadata.selectedMenuItems || [];
         const merged = mergeMemberMenuItems(mem.selectedMenuItems, added);
         await prisma.$transaction(async (tx) => {
+          const marker = await tx.payment.findUnique({ where: { reference }, select: { metadata: true } });
+          const markerMeta = flattenPaymentMetadata(marker?.metadata);
+          if (markerMeta.hosted_menu_applied) return;
           await tx.hostedTableMember.update({
             where: { id: mem.id },
             data: {
@@ -613,6 +640,10 @@ async function applyReferenceSideEffects(reference, paystackData) {
           await tx.hostedTable.update({
             where: { id: mem.hostedTableId },
             data: { menuSpendTotal: { increment: menuZar } },
+          });
+          await tx.payment.update({
+            where: { reference },
+            data: { metadata: { ...markerMeta, hosted_menu_applied: true } },
           });
         });
         const { secAmount, recipientAmount: venueAmount } = splitSecPlatform(menuZar);
@@ -2189,7 +2220,19 @@ async function runPaymentRepairPaths(reference, paystackData, { replayIncomplete
   const isVenueTable = type === 'TABLE_CHECKOUT' || type === 'VENUE_TABLE_JOIN';
   const isHostedJoin = type === 'TABLE_HOST_FEE' || type === 'HOSTED_TABLE_JOIN';
   const isExternal = type === 'HOSTED_TABLE_EXTERNAL_LISTING';
-  const runAll = !isTicket && !isVenueTable && !isHostedJoin && !isExternal;
+  const isAddon = type === MENU_ADDON_TYPE;
+  const runAll = !isTicket && !isVenueTable && !isHostedJoin && !isExternal && !isAddon;
+
+  if (isAddon && replayIncomplete) {
+    const pay = await prisma.payment.findUnique({ where: { reference }, select: { status: true } });
+    if (pay?.status === 'success' || paystackData?.status === 'success') {
+      const charged =
+        paystackData?.amount != null && Number(paystackData.amount) > 0 ? Number(paystackData.amount) / 100 : null;
+      await applyMenuAddonPayment({ reference, chargedAmountZar: charged }).catch((e) => {
+        console.warn('applyMenuAddonPayment repair failed', e?.message);
+      });
+    }
+  }
 
   if (runAll || isTicket) {
     await ensureEventTicketsForPayment(reference, paystackData).catch((e) => {
@@ -2297,6 +2340,10 @@ async function isPaymentFulfillmentComplete(reference, paidMeta) {
     if (ht?.status !== 'ACTIVE' || ht.externalListingPaystackRef !== reference) return false;
     const ticket = await prisma.ticket.findUnique({ where: { paystackReference: reference } });
     return Boolean(ticket);
+  }
+
+  if (type === MENU_ADDON_TYPE) {
+    return isMenuAddonFulfilled(prisma, reference);
   }
 
   if (type === 'HOSTED_TABLE_MENU') {
@@ -2869,6 +2916,23 @@ router.post('/initialize', authenticateToken, async (req, res, next) => {
         code: 'TABLE_HOST_FEE_RETIRED',
       });
     }
+    if (SERVER_ONLY_PAYMENT_TYPES.has(type)) {
+      return res.status(400).json({
+        error: 'This checkout must be started from the booking or order screen.',
+        code: 'SERVER_PRICED_CHECKOUT',
+      });
+    }
+    if (type === 'table' && meta.table_id) {
+      const legacyTable = await prisma.table.findFirst({
+        where: { id: String(meta.table_id), deletedAt: null },
+        select: { joiningFee: true },
+      });
+      if (!legacyTable) return res.status(404).json({ error: 'Table not found' });
+      const legacyFee = Number(legacyTable.joiningFee || 0);
+      if (legacyFee <= 0 || Math.abs(Number(d.amount) - legacyFee) >= 0.02) {
+        return res.status(400).json({ error: 'Payment amount does not match the table joining fee.', expected_zar: legacyFee });
+      }
+    }
 
     if (type === 'ticket') {
       const computed = await computeTicketCheckout(prisma, {
@@ -3013,6 +3077,23 @@ router.post('/paystack/initialize', authenticateToken, async (req, res, next) =>
         error: 'This checkout type is retired. Host venue tables from the event or day booking page.',
         code: 'TABLE_HOST_FEE_RETIRED',
       });
+    }
+    if (SERVER_ONLY_PAYMENT_TYPES.has(type)) {
+      return res.status(400).json({
+        error: 'This checkout must be started from the booking or order screen.',
+        code: 'SERVER_PRICED_CHECKOUT',
+      });
+    }
+    if (type === 'table' && meta.table_id) {
+      const legacyTable = await prisma.table.findFirst({
+        where: { id: String(meta.table_id), deletedAt: null },
+        select: { joiningFee: true },
+      });
+      if (!legacyTable) return res.status(404).json({ error: 'Table not found' });
+      const legacyFee = Number(legacyTable.joiningFee || 0);
+      if (legacyFee <= 0 || Math.abs(Number(d.amount) - legacyFee) >= 0.02) {
+        return res.status(400).json({ error: 'Payment amount does not match the table joining fee.', expected_zar: legacyFee });
+      }
     }
     if (type === 'ticket') {
       const computed = await computeTicketCheckout(prisma, {

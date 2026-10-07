@@ -98,6 +98,15 @@ export async function assertAdmitPermission(tx, staffUserId, staffRole, ticket, 
  */
 export async function evaluateTicketEntryValidity(tx, ticket) {
   const now = new Date();
+  if (ticket.kind === 'MENU_ADDON') {
+    const addon = await tx.menuAddonOrder.findUnique({
+      where: { paystackReference: ticket.paystackReference },
+      select: { status: true },
+    });
+    if (ticket.refundedAt || addon?.status === 'REFUNDED') {
+      return { ok: false, status: 403, reason: 'Refunded — this add-on order was refunded.', refunded: true };
+    }
+  }
   if (ticket.refundedAt) {
     return {
       ok: false,
@@ -168,6 +177,14 @@ export async function evaluateTicketEntryValidity(tx, ticket) {
 export async function admitTicketTx(tx, { ticketId, staffUserId, staffRole }) {
   const t = await tx.ticket.findUnique({ where: { id: ticketId } });
   if (!t) return { ok: false, status: 404, error: 'Ticket not found' };
+  if (t.kind === 'MENU_ADDON') {
+    return {
+      ok: false,
+      status: 400,
+      error: "This is an add-on order QR, not an entry pass. Scan the guest's ticket or table pass for entry.",
+      order_only: true,
+    };
+  }
 
   const now = new Date();
   if (ticketExpiresAtFromRow(t) <= now) {

@@ -24,6 +24,9 @@ export function payoutTypeLabel({ paymentReference = '', metadata = null } = {})
   if (ref.includes(':menu') || /:menu$/i.test(ref) || type === 'HOSTED_TABLE_MENU') {
     return 'Menu order';
   }
+  if (type === 'MENU_ADDON') {
+    return 'Add-on order';
+  }
   if (ref.includes(':join') || type === 'HOSTED_TABLE_JOIN' || type === 'VENUE_TABLE_JOIN') {
     return 'Table join';
   }

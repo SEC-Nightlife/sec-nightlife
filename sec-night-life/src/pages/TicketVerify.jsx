@@ -326,6 +326,19 @@ export default function TicketVerify() {
               </div>
             )}
 
+            {payload.order_only && (
+              <div
+                className="rounded-xl border px-4 py-3 mb-4 text-center"
+                style={{ borderColor: 'rgba(251,191,36,0.6)', backgroundColor: 'rgba(251,191,36,0.12)' }}
+              >
+                <p className="text-lg font-bold text-amber-200">Add-on order — not an entry pass</p>
+                <p className="text-xs text-amber-100/80 mt-1">
+                  Hand over the items below, then mark the order fulfilled. Use the guest&apos;s main ticket or table
+                  pass for entry.
+                </p>
+              </div>
+            )}
+
             {payload.host_instructions && (
               <p className="text-sm text-gray-400 leading-relaxed mb-4 border-l-2 border-emerald-500/50 pl-3">
                 {payload.host_instructions}
@@ -433,7 +446,7 @@ export default function TicketVerify() {
               >
                 <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide mb-2" style={{ color: payload.order_fulfilled ? '#86efac' : '#fcd34d' }}>
                   <Utensils className="w-4 h-4" />
-                  Menu / minimum spend
+                  {payload.order_only ? 'Add-on order' : 'Menu / minimum spend'}
                 </div>
                 <p className="text-lg font-bold leading-snug mb-2">
                   {payload.order_fulfilled ? 'Order fulfilled' : 'Needs serving'}
@@ -490,7 +503,40 @@ export default function TicketVerify() {
                   <p className="text-xs text-gray-500 mt-1">{payload.fulfill_denied_reason || 'Sign in with a venue bookings account to mark this order served.'}</p>
                 ) : null}
               </div>
+            ) : payload.order_only && payload.order_refunded ? (
+              <div className="rounded-xl border border-red-900/50 bg-red-950/20 p-4 mb-4 text-sm text-red-300">
+                This add-on order was refunded. Do not serve it.
+              </div>
             ) : null}
+
+            {Array.isArray(payload.addons) && payload.addons.length > 0 && (
+              <div
+                className="rounded-xl border p-4 mb-4"
+                style={{ borderColor: 'var(--sec-border, #262629)', backgroundColor: 'rgba(255,255,255,0.03)' }}
+              >
+                <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2">
+                  <Utensils className="w-4 h-4" />
+                  Add-on orders on this booking ({payload.addons.length})
+                </div>
+                <ul className="space-y-2 text-sm">
+                  {payload.addons.map((a) => (
+                    <li key={a.id} className="flex items-start justify-between gap-3">
+                      <span className="text-gray-300 break-words">{a.items_summary || 'Menu items'}</span>
+                      <span
+                        className={`sec-badge text-[10px] shrink-0 ${
+                          a.status === 'REFUNDED' ? 'sec-badge-muted' : a.fulfilled ? 'sec-badge-success' : 'sec-badge-gold'
+                        }`}
+                      >
+                        {a.status === 'REFUNDED' ? 'Refunded' : a.fulfilled ? 'Served' : 'Needs serving'}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+                <p className="text-xs text-gray-500 mt-2">
+                  Each add-on has its own QR. Scan the guest&apos;s add-on QR (or use Bookings → Orders) to mark it served.
+                </p>
+              </div>
+            )}
 
             {(payload.quantity != null && payload.quantity > 1) && valid && (
               <p className="text-base text-amber-200/90 mb-3">
@@ -543,7 +589,7 @@ export default function TicketVerify() {
               </div>
             )}
 
-            {valid && !payload.already_admitted && !payload.can_admit_here && (
+            {valid && !payload.already_admitted && !payload.can_admit_here && !payload.order_only && (
               <p className="text-xs text-gray-500 mb-4 leading-relaxed">
                 {!payload.viewer_authenticated ? (
                   <>

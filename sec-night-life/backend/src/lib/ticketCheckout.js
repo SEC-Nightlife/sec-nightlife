@@ -2,6 +2,7 @@ import { splitTicketCheckoutAmounts } from './platformSplit.js';
 import { line, sumCheckoutLines } from './checkoutLines.js';
 import { eventHasEnded } from './ticketHelpers.js';
 import { withServiceFee } from './serviceFee.js';
+import { chargeableMenuUnitPrice } from './menuHelpers.js';
 
 /** Per-tier paid menu add-ons. Legacy events with only the event flag still allow add-ons. */
 export function ticketTierAllowsMenuAddons(tier, event = null) {
@@ -150,12 +151,13 @@ export async function computeTicketCheckout(prisma, {
       if (!row) return { ok: false, error: 'Invalid menu item' };
       const itemQty = Math.max(0, parseInt(String(sel.quantity), 10) || 0);
       if (itemQty <= 0) continue;
-      const lineZar = Math.round(Number(row.price) * itemQty * 100) / 100;
+      const unitPrice = chargeableMenuUnitPrice(row);
+      const lineZar = Math.round(unitPrice * itemQty * 100) / 100;
       menuTotal += lineZar;
       menuLines.push({
         menuItemId: id,
         quantity: itemQty,
-        unitPrice: Number(row.price),
+        unitPrice,
         name: row.name,
       });
     }

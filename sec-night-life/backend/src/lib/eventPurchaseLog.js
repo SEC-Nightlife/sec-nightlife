@@ -220,6 +220,7 @@ export function formatMenuSummary(lines) {
 export function classifyPurchaseType({ metaType, ticketKind, bookingRole, memberRole } = {}) {
   const t = String(metaType || '');
   if (t === 'HOSTED_TABLE_MENU') return 'Table menu';
+  if (t === 'MENU_ADDON' || ticketKind === 'MENU_ADDON') return 'Add-on order';
   if (t === 'ticket' || t === 'event' || ticketKind === 'EVENT_TICKET') return 'Ticket';
   if (t === 'EVENT_ENTRANCE' || ticketKind === 'EVENT_ENTRANCE' || bookingRole === 'ENTRANCE') {
     return 'Entrance';

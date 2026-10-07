@@ -58,6 +58,13 @@ import {
 } from '../lib/venueTableHostAfterPayment.js';
 import { recordEventVenueTableBooking } from '../lib/eventVenueBooking.js';
 import { issueTicketAndNotify } from '../lib/issueTicket.js';
+import {
+  buildAddonPaymentMetadata,
+  cancelStalePendingAddons,
+  computeAddonCheckout,
+  createPendingAddonOrder,
+} from '../lib/addonOrders.js';
+import { initializeServerPaystackPayment, newPaystackReference } from '../lib/paystackServerCheckout.js';
 import { buildHostedTableJoinTicketSummary } from '../lib/ticketMemberSummary.js';
 import {
   eventStartsAtFromEvent,
@@ -664,58 +671,37 @@ router.post('/tables/:tableId/menu-order', authenticateToken, requireVerified, a
     if (!assertHostEligibleRole(req, res)) return;
     const parsed = menuOrderSchema.safeParse(req.body || {});
     if (!parsed.success) return res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten() });
-    const tableId = req.params.tableId;
-    const ht = await prisma.hostedTable.findFirst({
-      where: { id: tableId },
-      include: {
-        event: { select: { id: true, venueId: true, title: true } },
-        members: true,
-      },
-    });
-    if (!ht) return res.status(404).json({ error: 'Table not found' });
-    const menuVenueId = await resolveVenueIdForHostedTable(prisma, ht);
-    if (!menuVenueId) return res.status(400).json({ error: 'Menu orders require a venue-linked table.' });
-    const mem = ht.members.find((m) => m.userId === req.userId);
-    if (!mem || mem.status !== 'GOING') {
-      return res.status(403).json({ error: 'You must be an active member of this table before adding menu items.' });
-    }
-    if (ht.hasJoiningFee && Number(ht.joiningFee || 0) > 0) {
-      const joinPaid = Number(mem.joinFeePaid || 0) > 0 || Boolean(mem.paystackReference);
-      if (!joinPaid) {
-        return res.status(403).json({ error: 'Complete your join payment before adding menu items.' });
-      }
-    }
-    const menuResolved = await resolveVenueMenuSelections(parsed.data.selectedMenuItems, menuVenueId);
-    if (menuResolved.totalZar <= 0) {
-      return res.status(400).json({ error: 'Select at least one menu item.' });
-    }
-    const menuServiceFee = serviceFeeForSubtotal(menuResolved.totalZar);
-    const menuChargeZar = Math.round((menuResolved.totalZar + menuServiceFee) * 100) / 100;
-    const pay = await initializePaystackPayment({
+    // Each table menu order is a separate add-on order with its own order-only QR.
+    const computed = await computeAddonCheckout(prisma, {
       userId: req.userId,
-      amountZar: menuChargeZar,
-      metadata: {
-        type: 'HOSTED_TABLE_MENU',
-        hosted_table_id: ht.id,
-        hosted_table_member_id: mem.id,
-        event_id: ht.event?.id || null,
-        venue_id: menuVenueId,
-        is_day_booking: !ht.event?.id,
-        menu_zar: menuResolved.totalZar,
-        subtotal_zar: menuResolved.totalZar,
-        service_fee_zar: menuServiceFee,
-        amount_total_zar: menuChargeZar,
-        selected_menu_items: menuResolved.items,
-        user_id: req.userId,
-      },
+      hostedTableId: req.params.tableId,
+      selectedMenuItems: parsed.data.selectedMenuItems,
     });
+    if (!computed.ok) return res.status(computed.status || 400).json({ error: computed.error });
+    await cancelStalePendingAddons(prisma, req.userId);
+    const reference = newPaystackReference();
+    await createPendingAddonOrder(prisma, { reference, userId: req.userId, computed });
+    let pay;
+    try {
+      pay = await initializeServerPaystackPayment({
+        userId: req.userId,
+        amountZar: computed.total,
+        metadata: buildAddonPaymentMetadata({ userId: req.userId, computed }),
+        reference,
+      });
+    } catch (e) {
+      await prisma.menuAddonOrder
+        .updateMany({ where: { paystackReference: reference, status: 'PENDING_PAYMENT' }, data: { status: 'CANCELLED' } })
+        .catch(() => {});
+      throw e;
+    }
     res.json({
       pendingPayment: true,
-      amount_zar: menuChargeZar,
-      service_fee_zar: menuServiceFee,
+      amount_zar: computed.total,
+      service_fee_zar: computed.serviceFee,
       reference: pay.reference,
       access_code: pay.access_code,
-      items: menuResolved.items,
+      items: computed.items,
     });
   } catch (e) {
     next(e);

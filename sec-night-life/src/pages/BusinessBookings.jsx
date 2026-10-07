@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { createPageUrl } from '@/utils';
 import * as authService from '@/services/authService';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
@@ -613,7 +612,7 @@ export default function BusinessBookings() {
                 description={
                   search || orderDate || orderEventId !== 'all' || orderSource !== 'all'
                     ? 'Try a different username, date, event, or booking type.'
-                    : 'Prepaid menu and min-spend orders appear here so staff can tick them as served.'
+                    : 'Prepaid menu, min-spend and add-on orders appear here so staff can tick them as served.'
                 }
               />
             ) : (
@@ -629,6 +628,11 @@ export default function BusinessBookings() {
                         <p style={{ fontSize: 14, fontWeight: 600, color: 'var(--sec-text-primary)' }}>
                           @{order.username || 'guest'}
                           {order.fullName ? ` · ${order.fullName}` : ''}
+                          {order.isAddon ? (
+                            <span className="sec-badge sec-badge-gold" style={{ marginLeft: 8, fontSize: 10 }}>
+                              Add-on order
+                            </span>
+                          ) : null}
                         </p>
                         <p style={{ fontSize: 12, color: 'var(--sec-text-muted)', marginTop: 4 }}>
                           {[order.eventTitle, order.tableName].filter(Boolean).join(' · ') || 'Booking'}
@@ -636,7 +640,13 @@ export default function BusinessBookings() {
                           {order.source === 'ticket' ? ' · Ticket' : ''}
                         </p>
                         <MenuItemsBlock items={order.menuItems} />
-                        <PaymentBreakdown participant={order} />
+                        {order.isAddon ? (
+                          <p style={{ fontSize: 11, color: 'var(--sec-text-secondary)', marginTop: 6 }}>
+                            Extra order placed after the main booking. Serve separately; it has its own QR.
+                          </p>
+                        ) : (
+                          <PaymentBreakdown participant={order} />
+                        )}
                         {Number(order.minimumSpendZar) > 0 && !(order.menuItems || []).length ? (
                           <p style={{ fontSize: 11, color: 'var(--sec-text-secondary)', marginTop: 8 }}>
                             Minimum spend R{Number(order.minimumSpendZar).toFixed(0)}

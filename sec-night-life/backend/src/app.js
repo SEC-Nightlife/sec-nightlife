@@ -64,6 +64,7 @@ import celebrationRoutes from './routes/celebrations.js';
 import walletRoutes from './routes/wallet.js';
 import refundRoutes from './routes/refunds.js';
 import vendorRoutes from './routes/vendors.js';
+import addonOrderRoutes from './routes/addonOrders.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import { requestLogger } from './middleware/requestLogger.js';
 import { authenticateToken, optionalAuth } from './middleware/auth.js';
@@ -268,6 +269,7 @@ app.use('/api/menu-catalog', generalLimiter, menuCatalogRoutes);
 app.use('/api/home', generalLimiter, homeFeedRoutes);
 app.use('/api/map', generalLimiter, mapRoutes);
 app.use('/api/vendors', generalLimiter, vendorRoutes);
+app.use('/api/orders/addons', paymentLimiter, addonOrderRoutes);
 app.use('/api/celebrations', generalLimiter, celebrationRoutes);
 
 app.get('/', (req, res) => {

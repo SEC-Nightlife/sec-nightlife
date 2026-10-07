@@ -243,6 +243,8 @@ enum TicketKind {
   TABLE_HOST_FEE
   EXTERNAL_HOSTED_LISTING
   VENUE_TABLE_JOIN
+  /// Order-only pass for a menu add-on (never admits entry).
+  MENU_ADDON
 }
 
 enum OrderFulfillmentKind {
@@ -250,6 +252,21 @@ enum OrderFulfillmentKind {
   TABLE_MENU
   MIN_SPEND
   ENTRANCE_MENU
+  MENU_ADDON
+}
+
+enum MenuAddonParentKind {
+  TICKET
+  ENTRANCE
+  VENUE_TABLE
+  HOSTED_TABLE
+}
+
+enum MenuAddonStatus {
+  PENDING_PAYMENT
+  PAID
+  REFUNDED
+  CANCELLED
 }
 
 enum PayoutRecipientType {
@@ -328,6 +345,7 @@ enum RefundType {
   TABLE_HOST
   TABLE_JOIN
   HOSTED_TABLE_MENU
+  MENU_ADDON
 }
 
 enum PaymentRefundStatus {
@@ -1386,6 +1404,9 @@ model OrderFulfillment {
   kind              OrderFulfillmentKind
   fulfilledAt       DateTime             @default(now()) @map("fulfilled_at")
   fulfilledByUserId String               @map("fulfilled_by_user_id")
+  /// Set when staff undo a fulfilment (row kept for audit; re-fulfil clears it).
+  undoneAt          DateTime?            @map("undone_at")
+  undoneByUserId    String?              @map("undone_by_user_id")
 
   venue       Venue @relation(fields: [venueId], references: [id], onDelete: Cascade)
   user        User  @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -1395,6 +1416,41 @@ model OrderFulfillment {
   @@index([userId])
   @@index([fulfilledByUserId])
   @@map("order_fulfillments")
+}
+
+/// Extra menu order placed after the guest already holds a ticket, entrance or table pass.
+/// Each add-on is its own payment, venue order and order-only QR.
+model MenuAddonOrder {
+  id                  String              @id @default(cuid())
+  paystackReference   String              @unique @map("paystack_reference")
+  userId              String              @map("user_id")
+  venueId             String              @map("venue_id")
+  parentKind          MenuAddonParentKind @map("parent_kind")
+  /// Base Paystack reference of the parent purchase.
+  parentReference     String              @map("parent_reference")
+  parentTicketId      String?             @map("parent_ticket_id")
+  eventId             String?             @map("event_id")
+  venueTableId        String?             @map("venue_table_id")
+  venueTableMemberId  String?             @map("venue_table_member_id")
+  hostedTableId       String?             @map("hosted_table_id")
+  hostedTableMemberId String?             @map("hosted_table_member_id")
+  items               Json
+  subtotalZar         Float               @map("subtotal_zar")
+  serviceFeeZar       Float               @default(0) @map("service_fee_zar")
+  totalZar            Float               @map("total_zar")
+  status              MenuAddonStatus     @default(PENDING_PAYMENT)
+  ticketId            String?             @map("ticket_id")
+  paidAt              DateTime?           @map("paid_at")
+  refundedAt          DateTime?           @map("refunded_at")
+  createdAt           DateTime            @default(now()) @map("created_at")
+  updatedAt           DateTime            @updatedAt @map("updated_at")
+
+  @@index([userId])
+  @@index([venueId])
+  @@index([parentReference])
+  @@index([parentTicketId])
+  @@index([status])
+  @@map("menu_addon_orders")
 }
 
 model Ticket {

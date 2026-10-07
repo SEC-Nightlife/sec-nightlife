@@ -157,6 +157,7 @@ export async function loadRefundedMetricsForPeriod(venueIds, since) {
 
 function resolveRefundType(meta, paymentType, memberRole) {
   const mtype = String(meta.type || paymentType || '');
+  if (mtype === 'MENU_ADDON') return 'MENU_ADDON';
   if (mtype === 'HOSTED_TABLE_MENU') return 'HOSTED_TABLE_MENU';
   if (isTicketPaymentMeta(meta, paymentType)) return 'TICKET';
   const role = memberRole || meta.member_role || meta.memberRole;
@@ -338,6 +339,51 @@ export async function validateRefundEligibility({ payment, userId, userWalletCod
 
   const meta = flattenPaymentMetadata(payment.metadata);
   const mtype = String(meta.type || payment.type || '');
+
+  if (mtype === 'MENU_ADDON') {
+    const baseRef = basePaymentReference(payment.reference);
+    const addon = await prisma.menuAddonOrder.findUnique({ where: { paystackReference: baseRef } });
+    if (!addon || addon.userId !== userId) return { ok: false, error: 'Add-on order not found', status: 404 };
+    if (addon.status !== 'PAID') {
+      return { ok: false, error: 'Only paid add-on orders can be refunded', status: 400 };
+    }
+    const served = await prisma.orderFulfillment.findUnique({ where: { paystackReference: baseRef } });
+    if (served && !served.undoneAt) {
+      return {
+        ok: false,
+        error: 'The venue already marked this add-on as served. Contact the venue if something was wrong.',
+        status: 400,
+      };
+    }
+    const walletCodeInput = String(userWalletCode || '').trim().toUpperCase();
+    if (walletCodeInput !== 'SKIP') {
+      const wallet = await prisma.secWallet.findFirst({
+        where: { walletCode: walletCodeInput, ownerType: 'USER', userId },
+      });
+      if (!wallet) {
+        return { ok: false, error: 'Invalid Sec Wallet ID — use your wallet code from Profile', status: 400 };
+      }
+    }
+    const pending = await prisma.refundRequest.findFirst({
+      where: { userId, paymentReference: baseRef, status: 'PENDING' },
+    });
+    if (pending) return { ok: false, error: 'You already have a pending refund request for this payment', status: 409 };
+    return {
+      ok: true,
+      venueId: addon.venueId,
+      baseRef,
+      refundType: 'MENU_ADDON',
+      grossAmountZar: Number(addon.subtotalZar || 0),
+      meta,
+      venueTableMember: null,
+      venueTableId: null,
+      hostedTableMemberId: null,
+      hostedTableId: null,
+      eventId: addon.eventId || null,
+      ticketIds: addon.ticketId ? [addon.ticketId] : [],
+      walletCode: walletCodeInput !== 'SKIP' ? walletCodeInput : null,
+    };
+  }
 
   if (mtype === 'HOSTED_TABLE_JOIN') {
     const menuZar = Number(meta.menu_zar || 0);
@@ -605,7 +651,7 @@ function paymentRefWhere(baseRef) {
 export async function cancelBookingsForRefund(tx, { req, baseRef, guestsRetained = false }) {
   if (!req?.userId || !baseRef) return;
 
-  if (req.refundType === 'HOSTED_TABLE_MENU' || req.refundType === 'TICKET') return;
+  if (req.refundType === 'HOSTED_TABLE_MENU' || req.refundType === 'TICKET' || req.refundType === 'MENU_ADDON') return;
 
   if (req.refundType === 'TABLE_HOST') {
     const hostWhere = {
@@ -698,12 +744,20 @@ export async function applyRefundApproval(tx, refundRequest) {
   }
 
   // Manual venue→guest refund: mark ledgers so wallet/analytics do not treat as normal earnings.
+  // Menu-only refunds of a hosted join leave the host's join payout (and the service fee) alone.
+  const payMetaForLedger = payment ? flattenPaymentMetadata(payment.metadata) : {};
+  const menuOnlyOfJoin =
+    req.refundType === 'HOSTED_TABLE_MENU' && String(payMetaForLedger.type || '') === 'HOSTED_TABLE_JOIN';
   await tx.payoutLedger.updateMany({
     where: {
-      OR: [
-        { paymentReference: { in: [req.paymentReference, baseRef, `${baseRef}:join`, `${baseRef}:menu`] } },
-        { paymentReference: { startsWith: `${baseRef}:` } },
-      ],
+      ...(menuOnlyOfJoin
+        ? { paymentReference: `${baseRef}:menu` }
+        : {
+            OR: [
+              { paymentReference: { in: [req.paymentReference, baseRef, `${baseRef}:join`, `${baseRef}:menu`] } },
+              { paymentReference: { startsWith: `${baseRef}:` }, NOT: { paymentReference: `${baseRef}:service_fee` } },
+            ],
+          }),
       status: { not: 'REFUNDED_MANUAL' },
     },
     data: {
@@ -794,6 +848,26 @@ export async function applyRefundApproval(tx, refundRequest) {
     } else {
       await releaseVenueTableSlot(tx, req.venueTableId);
     }
+  }
+
+  if (req.refundType === 'MENU_ADDON') {
+    const addon = await tx.menuAddonOrder.findUnique({ where: { paystackReference: baseRef } });
+    if (addon && addon.status === 'PAID') {
+      await tx.menuAddonOrder.update({
+        where: { id: addon.id },
+        data: { status: 'REFUNDED', refundedAt: now },
+      });
+      if (addon.hostedTableId && Number(addon.subtotalZar) > 0) {
+        await tx.hostedTable.updateMany({
+          where: { id: addon.hostedTableId, menuSpendTotal: { gte: addon.subtotalZar } },
+          data: { menuSpendTotal: { decrement: addon.subtotalZar } },
+        });
+      }
+    }
+    await tx.ticket.updateMany({
+      where: { paystackReference: baseRef, userId: req.userId, refundedAt: null },
+      data: { refundedAt: now, refundRequestId: req.id },
+    });
   }
 
   if (req.refundType === 'HOSTED_TABLE_MENU') {
@@ -986,7 +1060,9 @@ export async function notifyRefundApproved({ refundRequest, userId, userEmail, v
         html: `<p>Your refund was approved. The venue will pay R${amount} to your Sec Wallet off-app.${
           refundRequest.refundType === 'HOSTED_TABLE_MENU'
             ? ' Refunded menu items are removed from your table; your join pass stays valid when only menu was refunded.'
-            : ' Your ticket/QR access for this purchase has been revoked.'
+            : refundRequest.refundType === 'MENU_ADDON'
+              ? ' Only this add-on order was refunded; your original ticket or table pass is still valid.'
+              : ' Your ticket/QR access for this purchase has been revoked.'
         }</p>`,
       },
       'guest-approved',

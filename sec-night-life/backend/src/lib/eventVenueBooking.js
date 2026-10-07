@@ -53,11 +53,12 @@ export async function recordEventVenueTableBooking({
     });
   }
 
+  // Only overwrite what the caller actually knows; null must not wipe an earlier entrance/amount.
   const data = {
-    paystackReference,
-    amountTotal,
-    entranceZar,
-    componentZar,
+    ...(paystackReference != null ? { paystackReference } : {}),
+    ...(amountTotal != null ? { amountTotal } : {}),
+    ...(entranceZar != null ? { entranceZar } : {}),
+    ...(componentZar != null ? { componentZar } : {}),
     ...(selectedMenuItems != null ? { selectedMenuItems } : {}),
     ...(hostingTierName != null ? { hostingTierName } : {}),
     ...(hostingCategory != null ? { hostingCategory } : {}),

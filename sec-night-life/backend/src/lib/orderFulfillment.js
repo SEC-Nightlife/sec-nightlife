@@ -1,6 +1,7 @@
 import { flattenPaymentMetadata, basePaymentReference } from './paymentMetadata.js';
 import { isStaff, staffHasVenuePermission } from './access.js';
 import { formatYmdSast } from './dayBookingWindows.js';
+import { listAddonsForParent } from './addonOrders.js';
 
 const PREPAY_SETTLEMENTS = new Set(['PREPAY_MENU', 'PREPAY_LUMP']);
 
@@ -10,6 +11,15 @@ const userBriefSelect = {
   fullName: true,
   userProfile: { select: { username: true } },
 };
+
+/** Fulfilment rows are kept after an undo (audit); only rows without undoneAt count. */
+export function isFulfillmentActive(row) {
+  return Boolean(row && !row.undoneAt);
+}
+
+function paymentIsRefunded(pay) {
+  return Boolean(pay && (pay.refundedAt || pay.refundStatus === 'APPROVED'));
+}
 
 export function canonicalOrderReference(ref) {
   return basePaymentReference(ref).replace(/-\d+$/, '');
@@ -247,7 +257,7 @@ export async function assertOrderFulfillPermission(db, { userId, userRole, venue
 
 async function loadRelatedForReference(db, reference) {
   const orRefs = [reference, `${reference}-1`];
-  const [payment, booking, member, tickets] = await Promise.all([
+  const [payment, booking, member, tickets, addon] = await Promise.all([
     db.payment.findFirst({
       where: { reference, status: 'success' },
       select: {
@@ -257,6 +267,8 @@ async function loadRelatedForReference(db, reference) {
         metadata: true,
         type: true,
         createdAt: true,
+        refundStatus: true,
+        refundedAt: true,
       },
     }),
     db.eventVenueTableBooking.findFirst({
@@ -295,16 +307,69 @@ async function loadRelatedForReference(db, reference) {
       orderBy: { createdAt: 'asc' },
       take: 20,
     }),
+    db.menuAddonOrder.findUnique({ where: { paystackReference: reference } }),
   ]);
-  return { payment, booking, member, tickets };
+  return { payment, booking, member, tickets, addon };
+}
+
+async function resolveAddonOrderContext(db, { reference, addon, ticket }) {
+  if (addon.status !== 'PAID' && addon.status !== 'REFUNDED') {
+    return { ok: false, status: 400, error: 'This add-on order has not been paid.', reference, venueId: addon.venueId };
+  }
+  const menuItems = await hydrateMenuLines(db, parseMenuItemLines(addon.items), addon.venueId);
+  const [user, fulfillment, ev, vt, ht] = await Promise.all([
+    db.user.findUnique({ where: { id: addon.userId }, select: userBriefSelect }),
+    db.orderFulfillment.findUnique({ where: { paystackReference: reference } }),
+    addon.eventId
+      ? db.event.findUnique({ where: { id: addon.eventId }, select: { title: true, date: true } })
+      : null,
+    addon.venueTableId
+      ? db.venueTable.findUnique({ where: { id: addon.venueTableId }, select: { tableName: true } })
+      : null,
+    addon.hostedTableId
+      ? db.hostedTable.findUnique({ where: { id: addon.hostedTableId }, select: { tableName: true } })
+      : null,
+  ]);
+  const fulfilled = isFulfillmentActive(fulfillment);
+  return {
+    ok: true,
+    reference,
+    venueId: addon.venueId,
+    userId: addon.userId,
+    user: mapUser(user) || { id: addon.userId, username: '', fullName: null },
+    kind: 'MENU_ADDON',
+    menuItems,
+    menuZar: Number(addon.subtotalZar || 0),
+    minimumSpendZar: 0,
+    settlementMode: null,
+    joinFeeZar: 0,
+    entranceZar: 0,
+    ticketZar: 0,
+    amountPaidZar: Number(addon.totalZar || 0),
+    eventId: addon.eventId || null,
+    eventTitle: ev?.title || null,
+    bookingDate: null,
+    eventDate: ev?.date || null,
+    tableName: ht?.tableName || vt?.tableName || null,
+    ticketId: ticket?.id || addon.ticketId || null,
+    createdAt: addon.paidAt || addon.createdAt,
+    fulfilled,
+    fulfilledAt: fulfilled ? fulfillment.fulfilledAt : null,
+    fulfilledByUserId: fulfilled ? fulfillment.fulfilledByUserId : null,
+    isAddon: true,
+    parentKind: addon.parentKind,
+    parentReference: addon.parentReference,
+    refunded: addon.status === 'REFUNDED',
+  };
 }
 
 export async function resolveOrderContext(db, rawReference) {
   const reference = canonicalOrderReference(rawReference);
   if (!reference) return { ok: false, status: 400, error: 'Missing payment reference' };
 
-  const { payment, booking, member, tickets } = await loadRelatedForReference(db, reference);
+  const { payment, booking, member, tickets, addon } = await loadRelatedForReference(db, reference);
   const ticket = tickets[0] || null;
+  if (addon) return resolveAddonOrderContext(db, { reference, addon, ticket });
   const meta = flattenPaymentMetadata(payment?.metadata);
 
   let venueId =
@@ -434,9 +499,11 @@ export async function resolveOrderContext(db, rawReference) {
     tableName,
     ticketId: ticket?.id || null,
     createdAt: payment?.createdAt || booking?.createdAt || member?.paidAt || ticket?.createdAt || null,
-    fulfilled: Boolean(fulfillment),
-    fulfilledAt: fulfillment?.fulfilledAt || null,
-    fulfilledByUserId: fulfillment?.fulfilledByUserId || null,
+    fulfilled: isFulfillmentActive(fulfillment),
+    fulfilledAt: isFulfillmentActive(fulfillment) ? fulfillment.fulfilledAt : null,
+    fulfilledByUserId: isFulfillmentActive(fulfillment) ? fulfillment.fulfilledByUserId : null,
+    isAddon: false,
+    refunded: paymentIsRefunded(payment),
   };
 }
 
@@ -450,6 +517,9 @@ export async function fulfillOrderByReference(db, { rawReference, staffUserId, s
   });
   if (!perm.ok) return { ok: false, status: 403, error: perm.reason };
   if (!ctx.userId) return { ok: false, status: 400, error: 'Order has no guest user.' };
+  if (ctx.refunded) {
+    return { ok: false, status: 409, error: 'This order was refunded. Do not serve it.' };
+  }
 
   const row = await db.orderFulfillment.upsert({
     where: { paystackReference: ctx.reference },
@@ -464,6 +534,8 @@ export async function fulfillOrderByReference(db, { rawReference, staffUserId, s
       fulfilledAt: new Date(),
       fulfilledByUserId: staffUserId,
       kind: ctx.kind,
+      undoneAt: null,
+      undoneByUserId: null,
     },
   });
   return { ok: true, fulfillment: row, order: { ...ctx, fulfilled: true, fulfilledAt: row.fulfilledAt } };
@@ -479,7 +551,10 @@ export async function unfulfillOrderByReference(db, { rawReference, staffUserId,
   });
   if (!perm.ok) return { ok: false, status: 403, error: perm.reason };
 
-  await db.orderFulfillment.deleteMany({ where: { paystackReference: ctx.reference } });
+  await db.orderFulfillment.updateMany({
+    where: { paystackReference: ctx.reference, undoneAt: null },
+    data: { undoneAt: new Date(), undoneByUserId: staffUserId },
+  });
   return { ok: true, order: { ...ctx, fulfilled: false, fulfilledAt: null } };
 }
 
@@ -543,7 +618,7 @@ export async function listVenueServeableOrders(db, {
 
   const venueTables = await db.venueTable.findMany({
     where: { venueId: { in: ids } },
-    select: { id: true, tableName: true, venueId: true, eventId: true },
+    select: { id: true, tableName: true, venueId: true, eventId: true, hostedTableId: true },
   });
   const vtIds = venueTables.map((t) => t.id);
   const vtById = new Map(venueTables.map((t) => [t.id, t]));
@@ -554,7 +629,10 @@ export async function listVenueServeableOrders(db, {
         select: { id: true },
       })
     : [];
-  const hostedIds = hosted.map((h) => h.id);
+  // Day-booking hosted tables have no event; they hang off a venue table instead.
+  const hostedIds = [
+    ...new Set([...hosted.map((h) => h.id), ...venueTables.map((t) => t.hostedTableId).filter(Boolean)]),
+  ];
 
   const ticketOr = [];
   if (eventIds.length) ticketOr.push({ eventId: { in: eventIds } });
@@ -626,7 +704,16 @@ export async function listVenueServeableOrders(db, {
   const payments = refList.length
     ? await db.payment.findMany({
         where: { reference: { in: refList }, status: 'success' },
-        select: { reference: true, amount: true, metadata: true, type: true, createdAt: true, userId: true },
+        select: {
+          reference: true,
+          amount: true,
+          metadata: true,
+          type: true,
+          createdAt: true,
+          userId: true,
+          refundStatus: true,
+          refundedAt: true,
+        },
       })
     : [];
   const paymentByRef = new Map(payments.map((p) => [p.reference, p]));
@@ -635,6 +722,7 @@ export async function listVenueServeableOrders(db, {
 
   for (const row of bookings) {
     const pay = paymentByRef.get(canonicalOrderReference(row.paystackReference));
+    if (paymentIsRefunded(pay)) continue;
     const meta = flattenPaymentMetadata(pay?.metadata);
     const menuItems = mergeMenuLineSources(row.selectedMenuItems, ...menuSourcesFromPaymentMeta(meta));
     const charges = chargeBreakdownFromMeta(meta, {
@@ -673,6 +761,7 @@ export async function listVenueServeableOrders(db, {
 
   for (const row of members) {
     const pay = paymentByRef.get(canonicalOrderReference(row.paystackReference));
+    if (paymentIsRefunded(pay)) continue;
     const meta = flattenPaymentMetadata(pay?.metadata);
     const menuItems = mergeMenuLineSources(row.selectedMenuItems, ...menuSourcesFromPaymentMeta(meta));
     const charges = chargeBreakdownFromMeta(meta);
@@ -713,6 +802,7 @@ export async function listVenueServeableOrders(db, {
 
   for (const row of tickets) {
     const pay = paymentByRef.get(canonicalOrderReference(row.paystackReference));
+    if (paymentIsRefunded(pay)) continue;
     const meta = flattenPaymentMetadata(pay?.metadata);
     const menuItems = mergeMenuLineSources(...menuSourcesFromPaymentMeta(meta));
     const charges = chargeBreakdownFromMeta(meta);
@@ -749,6 +839,59 @@ export async function listVenueServeableOrders(db, {
     });
   }
 
+  // "Order more" add-ons: each one is its own order with its own reference.
+  const addons = await db.menuAddonOrder.findMany({
+    where: { venueId: { in: ids }, status: 'PAID' },
+    orderBy: { paidAt: 'desc' },
+    take: 800,
+  });
+  if (addons.length) {
+    const addonUsers = await db.user.findMany({
+      where: { id: { in: [...new Set(addons.map((a) => a.userId))] } },
+      select: userBriefSelect,
+    });
+    const userById = new Map(addonUsers.map((u) => [u.id, u]));
+    const hostedNames = new Map(
+      (
+        await db.hostedTable.findMany({
+          where: { id: { in: [...new Set(addons.map((a) => a.hostedTableId).filter(Boolean))] } },
+          select: { id: true, tableName: true },
+        })
+      ).map((h) => [h.id, h.tableName]),
+    );
+    for (const a of addons) {
+      const u = userById.get(a.userId);
+      const ev = a.eventId ? eventById.get(a.eventId) : null;
+      const vt = a.venueTableId ? vtById.get(a.venueTableId) : null;
+      const ticketParent = a.parentKind === 'TICKET' || a.parentKind === 'ENTRANCE';
+      pushCandidate(candidates, {
+        paystackReference: a.paystackReference,
+        venueId: a.venueId,
+        userId: a.userId,
+        username: usernameOf(u),
+        fullName: u?.fullName || null,
+        eventId: a.eventId || null,
+        eventTitle: ev?.title || null,
+        eventDate: ev?.date || null,
+        tableName: (a.hostedTableId && hostedNames.get(a.hostedTableId)) || vt?.tableName || null,
+        source: ticketParent ? 'ticket' : a.eventId ? 'event_table' : 'day',
+        menuItems: parseMenuItemLines(a.items),
+        menuZar: Number(a.subtotalZar || 0),
+        minimumSpendZar: 0,
+        settlementMode: null,
+        joinFeeZar: 0,
+        entranceZar: 0,
+        ticketZar: 0,
+        amountPaidZar: Number(a.totalZar || 0),
+        kind: 'MENU_ADDON',
+        isAddon: true,
+        parentKind: a.parentKind,
+        parentReference: a.parentReference,
+        createdAt: a.paidAt || a.createdAt,
+      });
+    }
+  }
+
   const serveable = [...candidates.values()].filter((c) =>
     isServeableOrder({
       menuItems: c.menuItems,
@@ -780,8 +923,8 @@ export async function listVenueServeableOrders(db, {
     return {
       ...c,
       id: c.paystackReference,
-      fulfilled: Boolean(f),
-      fulfilledAt: f?.fulfilledAt || null,
+      fulfilled: isFulfillmentActive(f),
+      fulfilledAt: isFulfillmentActive(f) ? f.fulfilledAt : null,
     };
   });
 
@@ -819,8 +962,8 @@ export function applyFulfillmentToParticipant(entry, fulfillMap) {
     ...entry,
     paystackReference: ref || entry.paystackReference || null,
     hasServeableOrder: serveable,
-    orderFulfilled: Boolean(f),
-    orderFulfilledAt: f?.fulfilledAt || null,
+    orderFulfilled: isFulfillmentActive(f),
+    orderFulfilledAt: isFulfillmentActive(f) ? f.fulfilledAt : null,
   };
 }
 
@@ -848,6 +991,10 @@ export function serializeOrderForClient(order) {
     amountPaidZar: Number(order.amountPaidZar || 0),
     fulfilled: Boolean(order.fulfilled),
     fulfilledAt: order.fulfilledAt || null,
+    isAddon: Boolean(order.isAddon),
+    parentKind: order.parentKind || null,
+    parentReference: order.parentReference || null,
+    refunded: Boolean(order.refunded),
     createdAt: order.createdAt || null,
     bookingDate: order.bookingDate ? orderDateYmd({ bookingDate: order.bookingDate }) : orderDateYmd(order) || null,
   };
@@ -855,8 +1002,18 @@ export function serializeOrderForClient(order) {
 
 export async function buildTicketOrderPayload(db, ticket) {
   const ctx = await resolveOrderContext(db, ticket.paystackReference);
+  const orderOnly = ticket.kind === 'MENU_ADDON';
+  const addons = orderOnly
+    ? []
+    : await listAddonsForParent(db, {
+        parentTicketId: ticket.id,
+        parentReference: canonicalOrderReference(ticket.paystackReference),
+        userId: ticket.userId,
+      }).catch(() => []);
   if (!ctx.ok) {
     return {
+      order_only: orderOnly,
+      addons,
       has_serveable_order: false,
       menu_items: [],
       menu_zar: 0,
@@ -868,7 +1025,10 @@ export async function buildTicketOrderPayload(db, ticket) {
     };
   }
   return {
-    has_serveable_order: true,
+    order_only: orderOnly,
+    addons,
+    order_refunded: Boolean(ctx.refunded),
+    has_serveable_order: !ctx.refunded,
     menu_items: ctx.menuItems,
     menu_zar: ctx.menuZar,
     minimum_spend_zar: ctx.minimumSpendZar,

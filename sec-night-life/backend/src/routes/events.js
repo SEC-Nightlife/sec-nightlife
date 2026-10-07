@@ -621,6 +621,7 @@ async function loadAttendanceCountsByEventIds(eventIds) {
       by: ['eventId'],
       where: {
         eventId: { in: ids },
+        kind: { not: 'MENU_ADDON' },
         refundedAt: null,
         hiddenFromHistoryAt: null,
       },
@@ -630,6 +631,7 @@ async function loadAttendanceCountsByEventIds(eventIds) {
       by: ['eventId'],
       where: {
         eventId: { in: ids },
+        kind: { not: 'MENU_ADDON' },
         refundedAt: null,
         hiddenFromHistoryAt: null,
         admittedAt: { not: null },

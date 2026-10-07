@@ -159,7 +159,7 @@ export function isMenuPayment(meta, mtype, ledgerRef = null) {
   const component = ledgerPaymentComponent(ledgerRef);
   if (component === 'menu') return true;
   const t = String(mtype || meta?.type || '');
-  return t === 'HOSTED_TABLE_MENU';
+  return t === 'HOSTED_TABLE_MENU' || t === 'MENU_ADDON';
 }
 
 export function createEmptyRevenueCounters() {

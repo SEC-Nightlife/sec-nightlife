@@ -31,6 +31,9 @@ function eligiblePaymentLabel(meta, check) {
   if (check.refundType === 'HOSTED_TABLE_MENU' && check.partialMenuOnly) {
     return 'Menu items only (join fee not refundable)';
   }
+  if (check.refundType === 'MENU_ADDON') {
+    return 'Add-on order (menu items only)';
+  }
   const tableName = meta.table_name || meta.tableName;
   const venueName = meta.venue_name || meta.venueName;
   const isDayBooking =

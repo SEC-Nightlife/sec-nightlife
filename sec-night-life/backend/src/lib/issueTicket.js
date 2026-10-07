@@ -201,7 +201,7 @@ export async function issueTicketAndNotify(db, params) {
   if (email && !skipEmail) {
     sendEmail({
       to: email,
-      subject: `Your SEC ticket — ${title}`,
+      subject: kind === 'MENU_ADDON' ? `Your SEC add-on order — ${title}` : `Your SEC ticket — ${title}`,
       text: `Your ticket for "${title}" is confirmed.\n\n${validUntilLabel ? `Valid until ${validUntilLabel}\n\n` : ''}Scan link (door check): ${verifyUrl}\nProfile (Tickets tab): ${profileUrl}\n\nThe QR in the HTML email is embedded so it usually works offline in your mail app after download. Open the link once online if you want the ticket saved in the SEC app for offline use.\n\nReference: ${paystackReference}`,
       html: `
         <div style="font-family:sans-serif;max-width:520px;margin:0 auto;background:#111;color:#eee;padding:24px;">
@@ -210,7 +210,7 @@ export async function issueTicketAndNotify(db, params) {
           ${subtitle ? `<p style="color:#aaa;margin:0 0 16px;">${subtitle}</p>` : ''}
           ${validUntilLabel ? `<p style="margin:0 0 12px;font-size:14px;color:#e8c547;"><strong>Valid until ${validUntilLabel}</strong></p>` : ''}
           ${door.event_code ? `<p style="margin:0 0 12px;font-size:15px;font-weight:700;letter-spacing:0.08em;color:#e8c547;">${door.event_code}</p>` : ''}
-          <p style="margin:0 0 16px;">Open <a href="${profileUrl}" style="color:#8cf;">Profile → Tickets</a> in the SEC app to show your QR code at the door.</p>
+          <p style="margin:0 0 16px;">Open <a href="${profileUrl}" style="color:#8cf;">Profile → Tickets</a> in the SEC app to show your QR code ${kind === 'MENU_ADDON' ? 'to staff when you collect your order. This QR is for the order only and does not admit entry' : 'at the door'}.</p>
           <p style="margin:0 0 12px;font-size:12px;color:#9aa0a6;line-height:1.5;">Tip: the QR image below is embedded in this email — in most mail apps it stays visible <strong style="color:#e9ecef;">offline</strong> after the message has downloaded. You can also open the link once online so your phone can save the ticket for offline door checks.</p>
           <p style="margin:0 0 16px;font-size:13px;">Staff can scan: <a href="${verifyUrl}" style="color:#8cf;word-break:break-all;">${verifyUrl}</a></p>
           ${qrPngBuffer ? `<p style="margin:16px 0;"><img src="cid:${QR_CID}" alt="Ticket QR" width="200" height="200" style="display:block;border-radius:8px;" /></p>` : ''}

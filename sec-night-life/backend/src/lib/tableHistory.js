@@ -326,6 +326,7 @@ export async function gatherTicketEventHistory(userId, hostedToVenue = null) {
   const tickets = await prisma.ticket.findMany({
     where: {
       userId,
+      kind: { not: 'MENU_ADDON' },
       hiddenFromHistoryAt: null,
       refundedAt: null,
     },

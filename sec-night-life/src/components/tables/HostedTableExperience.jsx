@@ -10,6 +10,7 @@ import { toast } from 'sonner';
 import { launchPaystackInline } from '@/lib/paystackInline';
 import { completePaystackCheckout } from '@/lib/completePaystackCheckout';
 import MenuPicker, { menuSelectionToPayload, menuSelectionTotal } from '@/components/menu/MenuPicker';
+import AddonOrdersList, { addonOrdersQueryKey } from '@/components/orders/AddonOrdersList';
 import { SERVICE_FEE_ZAR, totalWithServiceFee } from '@/lib/serviceFee';
 import InviteFriendsDialog from '@/components/tables/InviteFriendsDialog';
 import HostedTableJoinWizard from '@/components/tables/HostedTableJoinWizard';
@@ -290,8 +291,9 @@ export default function HostedTableExperience({
           onSuccess: async (payloadRef) => {
             await completePaystackCheckout({ reference: r.reference, payload: payloadRef, queryClient, showToasts: false });
             invalidateTableQueries();
+            queryClient.invalidateQueries({ queryKey: addonOrdersQueryKey({ hostedTableId: tableId }) });
             setHostedMenuSelected({});
-            toast.success('Menu order paid — added to your table.');
+            toast.success('Add-on order paid — show its QR to staff to collect it.');
           },
         });
       }
@@ -597,10 +599,19 @@ export default function HostedTableExperience({
         </div>
       </div>
 
-      {isGoingMember && !isHost && venueMenu.length > 0 && (
+      {isGoingMember && (
+        <div style={{ padding: '0 20px 20px' }}>
+          <AddonOrdersList hostedTableId={tableId} />
+        </div>
+      )}
+
+      {isGoingMember && venueMenu.length > 0 && (
         <div style={{ padding: '0 20px 20px' }}>
           <div style={cardStyle}>
-            <p style={{ fontSize: 14, fontWeight: 600, marginBottom: 8 }}>Add menu items</p>
+            <p style={{ fontSize: 14, fontWeight: 600, marginBottom: 4 }}>Order more</p>
+            <p style={{ fontSize: 12, color: 'var(--sec-text-muted)', marginBottom: 8 }}>
+              Each order is paid separately and gets its own QR for staff. It does not change your entry pass.
+            </p>
             <MenuPicker
               items={venueMenu}
               selected={hostedMenuSelected}
