@@ -56,7 +56,8 @@ export const vendorsBecome = {
         'Open Settings → My vendor businesses (or complete the vendor step in onboarding).',
         'Create a listing: name, category, description, and optional photos (up to 4).',
         'Publish the listing so venues can find you on the Vendors page.',
-        'Keep contact details and photos up to date so venues can reach you.',
+        'Add a starting price or Quote on request, the areas you serve, and contact details.',
+        'Venues send hire requests — manage them under Settings → My vendor businesses → Hire requests.',
       ],
     },
     {
@@ -75,6 +76,107 @@ export const vendorsBecome = {
     {
       type: 'related',
       ids: ['vendors-overview', 'partygoer-getting-started'],
+    },
+  ],
+};
+
+export const vendorReviewsArticle = {
+  id: 'vendors-reviews',
+  audience: 'both',
+  category: 'jobsVendors',
+  title: 'Rating and reviewing vendors',
+  summary:
+    'Leave a star rating and comment on a vendor listing — as yourself or on behalf of your venue — so other venues can hire with confidence.',
+  readMinutes: 3,
+  keywords: ['vendor review', 'rate vendor', 'stars', 'verified hire', 'flag review'],
+  sections: [
+    {
+      type: 'p',
+      text: 'Vendor reviews work like profile reviews. Open a vendor listing, scroll to Reviews and tap Write a review. Pick 1–5 stars and write 10–300 characters about quality, reliability and communication.',
+    },
+    {
+      type: 'steps',
+      items: [
+        'Open Vendors and tap the listing.',
+        'Scroll to Reviews → Write a review (or Review as venue if you own a venue).',
+        'Choose a star rating and add your comment.',
+        'Post. You can edit or delete it later from the listing or Profile → Reviews I’ve given.',
+      ],
+    },
+    {
+      type: 'heading',
+      text: 'Verified hire badge',
+    },
+    {
+      type: 'p',
+      text: 'When a venue sends a hire request through SEC and it is marked completed, reviews from that venue (and the person who sent the request) show a “Verified hire” badge.',
+    },
+    {
+      type: 'heading',
+      text: 'Rules',
+    },
+    {
+      type: 'p',
+      text: 'One review per person and one per venue for each listing. You can’t review your own listing. Everyone shares a limit of 5 new reviews per hour. Listing owners can flag a review they believe breaks the rules; SEC admins then keep or remove it. Flagged reviews don’t count toward the rating while they are being checked.',
+    },
+    {
+      type: 'related',
+      ids: ['vendors-hiring', 'vendors-overview'],
+    },
+  ],
+};
+
+export const vendorHiringArticle = {
+  id: 'vendors-hiring',
+  audience: 'both',
+  category: 'jobsVendors',
+  title: 'Hiring a vendor (hire requests)',
+  summary: 'Venues send hire requests from a vendor listing; vendors accept, decline and mark jobs completed.',
+  readMinutes: 4,
+  keywords: ['hire vendor', 'hire request', 'request to hire', 'vendor inquiry', 'contact vendor'],
+  sections: [
+    {
+      type: 'p',
+      text: 'Venue owners can contact vendors without sending a friend request. On a vendor listing tap Request to hire, choose your venue, add an optional event date and describe what you need.',
+    },
+    {
+      type: 'heading',
+      text: 'For venues',
+    },
+    {
+      type: 'steps',
+      items: [
+        'Open the vendor listing → Request to hire.',
+        'Pick the venue, optional date, and write your message (at least 10 characters).',
+        'Track the status under Vendors → My hire requests. You can message the vendor directly once the request is sent.',
+        'After the job, tap Mark as completed and leave a review — it will carry the Verified hire badge.',
+      ],
+    },
+    {
+      type: 'heading',
+      text: 'For vendors',
+    },
+    {
+      type: 'steps',
+      items: [
+        'Open Settings → My vendor businesses → Hire requests.',
+        'Accept or decline new requests (you can add a short note).',
+        'Use Message to plan details with the venue.',
+        'Mark the request completed after the event.',
+      ],
+    },
+    {
+      type: 'tip',
+      title: 'Tip',
+      text: 'Add a starting price (or choose Quote on request), the areas you serve, and contact details to your listing so venues can shortlist you quickly. Phone, WhatsApp and email are only visible to signed-in members.',
+    },
+    {
+      type: 'p',
+      text: 'Payments for vendor work are arranged directly between the venue and the vendor — SEC does not process them. Use Report listing on the vendor page if something looks wrong.',
+    },
+    {
+      type: 'related',
+      ids: ['vendors-reviews', 'vendors-become'],
     },
   ],
 };

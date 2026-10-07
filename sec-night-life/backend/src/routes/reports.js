@@ -8,7 +8,7 @@ const router = Router();
 const REPORT_WINDOW_MS = 12 * 60 * 60 * 1000;
 
 const createReportSchema = z.object({
-  target_type: z.enum(['user', 'venue', 'event']),
+  target_type: z.enum(['user', 'venue', 'event', 'vendor']),
   target_id: z.string().uuid(),
   category: z.enum([
     'fraud',
@@ -39,6 +39,16 @@ router.post('/', authenticateToken, async (req, res, next) => {
 
     if (d.target_type === 'user' && d.target_id === req.userId) {
       return res.status(400).json({ error: 'You cannot report your own account' });
+    }
+    if (d.target_type === 'vendor') {
+      const vendor = await prisma.vendorBusiness.findFirst({
+        where: { id: d.target_id, deletedAt: null },
+        select: { userId: true },
+      });
+      if (!vendor) return res.status(404).json({ error: 'Vendor listing not found' });
+      if (vendor.userId === req.userId) {
+        return res.status(400).json({ error: 'You cannot report your own listing' });
+      }
     }
 
     const duplicate = await prisma.report.findFirst({

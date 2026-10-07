@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiGet, apiPost, apiPatch, apiDelete } from '@/api/client';
 import PageBackHeader from '@/components/layout/PageBackHeader';
@@ -8,21 +8,76 @@ import { createPageUrl } from '@/utils';
 import { toast } from 'sonner';
 import { useAuth } from '@/lib/AuthContext';
 import { vendorCategoryLabel } from '@/lib/vendorCategories';
-import { Plus } from 'lucide-react';
+import { Plus, Star } from 'lucide-react';
+import VendorInquiriesList from '@/components/vendors/VendorInquiriesList';
 
 const EMPTY_DRAFT = {
   name: '',
   category: '',
   description: '',
   website: '',
+  phone: '',
+  whatsapp: '',
+  email: '',
+  instagram: '',
+  price_from_zar: '',
+  price_unit: 'per_event',
+  quote_on_request: false,
+  service_area: '',
+  city: '',
   images: [],
   is_published: true,
 };
+
+function draftFromVendor(vendor) {
+  return {
+    name: vendor.name || '',
+    category: vendor.category || '',
+    description: vendor.description || '',
+    website: vendor.website || '',
+    phone: vendor.phone || '',
+    whatsapp: vendor.whatsapp || '',
+    email: vendor.email || '',
+    instagram: vendor.instagram || '',
+    price_from_zar: vendor.price_from_zar ?? '',
+    price_unit: vendor.price_unit || 'per_event',
+    quote_on_request: Boolean(vendor.quote_on_request),
+    service_area: vendor.service_area || '',
+    city: vendor.city || '',
+    images: (vendor.images || []).map((i) => i.url),
+    is_published: vendor.is_published !== false,
+  };
+}
+
+function TabButton({ active, onClick, children }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="flex-1 min-h-[40px] rounded-lg text-sm font-semibold"
+      style={{
+        background: active ? 'var(--sec-accent-muted)' : 'transparent',
+        color: active ? 'var(--sec-text-primary)' : 'var(--sec-text-muted)',
+        border: `1px solid ${active ? 'var(--sec-accent-border)' : 'transparent'}`,
+      }}
+    >
+      {children}
+    </button>
+  );
+}
 
 export default function VendorBusinessSettings() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { userProfile } = useAuth();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const tab = searchParams.get('tab') === 'requests' ? 'requests' : 'listings';
+  const setTab = (next) => {
+    const params = new URLSearchParams(searchParams);
+    if (next === 'requests') params.set('tab', 'requests');
+    else params.delete('tab');
+    setSearchParams(params, { replace: true });
+  };
   const [mode, setMode] = useState('list'); // list | create | edit
   const [editingId, setEditingId] = useState(null);
   const [draft, setDraft] = useState(EMPTY_DRAFT);
@@ -42,33 +97,19 @@ export default function VendorBusinessSettings() {
 
   useEffect(() => {
     if (mode === 'edit' && editing) {
-      setDraft({
-        name: editing.name || '',
-        category: editing.category || '',
-        description: editing.description || '',
-        website: editing.website || '',
-        images: (editing.images || []).map((i) => i.url),
-        is_published: editing.is_published !== false,
-      });
+      setDraft(draftFromVendor(editing));
     }
   }, [mode, editing]);
 
   const startCreate = () => {
     setEditingId(null);
-    setDraft({ ...EMPTY_DRAFT });
+    setDraft({ ...EMPTY_DRAFT, city: userProfile?.city || '' });
     setMode('create');
   };
 
   const startEdit = (vendor) => {
     setEditingId(vendor.id);
-    setDraft({
-      name: vendor.name || '',
-      category: vendor.category || '',
-      description: vendor.description || '',
-      website: vendor.website || '',
-      images: (vendor.images || []).map((i) => i.url),
-      is_published: vendor.is_published !== false,
-    });
+    setDraft(draftFromVendor(vendor));
     setMode('edit');
   };
 
@@ -83,17 +124,32 @@ export default function VendorBusinessSettings() {
       if (!isVendorListingValid(draft)) {
         throw new Error('Name, category, and description are required');
       }
+      const price = Number(draft.price_from_zar);
+      const city = draft.city?.trim() || null;
       const payload = {
         name: draft.name.trim(),
         category: draft.category,
         description: draft.description.trim(),
         website: draft.website?.trim() || null,
-        city: userProfile?.city || null,
-        latitude: userProfile?.latitude ?? null,
-        longitude: userProfile?.longitude ?? null,
+        phone: draft.phone?.trim() || null,
+        whatsapp: draft.whatsapp?.trim() || null,
+        email: draft.email?.trim() || null,
+        instagram: draft.instagram?.trim() || null,
+        quote_on_request: Boolean(draft.quote_on_request),
+        price_from_zar: !draft.quote_on_request && Number.isFinite(price) && price > 0 ? price : null,
+        price_unit: !draft.quote_on_request && Number.isFinite(price) && price > 0 ? draft.price_unit || 'per_event' : null,
+        service_area: draft.service_area?.trim() || null,
+        city,
         is_published: draft.is_published !== false,
         images: (draft.images || []).map((url, i) => ({ url, sort_order: i })),
       };
+      // Coordinates follow the city: reuse the profile pin only when the listing is in the same city.
+      const originalCity = mode === 'edit' ? editing?.city || null : null;
+      if (mode !== 'edit' || (city || '').toLowerCase() !== (originalCity || '').toLowerCase()) {
+        const sameAsProfile = city && userProfile?.city && city.toLowerCase() === userProfile.city.toLowerCase();
+        payload.latitude = sameAsProfile ? userProfile?.latitude ?? null : null;
+        payload.longitude = sameAsProfile ? userProfile?.longitude ?? null : null;
+      }
       if (mode === 'edit' && editingId) {
         return apiPatch(`/api/vendors/${editingId}`, payload);
       }
@@ -105,7 +161,7 @@ export default function VendorBusinessSettings() {
       queryClient.invalidateQueries({ queryKey: ['vendors'] });
       backToList();
     },
-    onError: (err) => toast.error(err?.message || 'Could not save listing'),
+    onError: (err) => toast.error(err?.data?.error || err?.message || 'Could not save listing'),
   });
 
   const deleteMutation = useMutation({
@@ -132,10 +188,29 @@ export default function VendorBusinessSettings() {
 
       <div className="px-5 max-w-md mx-auto pt-4 space-y-5">
         {mode === 'list' ? (
+          <div className="flex gap-1 p-1 rounded-xl" style={{ background: 'var(--sec-bg-card)', border: '1px solid var(--sec-border)' }}>
+            <TabButton active={tab === 'listings'} onClick={() => setTab('listings')}>
+              Listings
+            </TabButton>
+            <TabButton active={tab === 'requests'} onClick={() => setTab('requests')}>
+              Hire requests
+            </TabButton>
+          </div>
+        ) : null}
+
+        {mode === 'list' && tab === 'requests' ? (
+          <>
+            <p style={{ margin: 0, fontSize: 14, color: 'var(--sec-text-muted)', lineHeight: 1.5 }}>
+              Venues send hire requests from your listing. Accept to start planning, then mark the job completed —
+              completed hires show a “Verified hire” badge on that venue’s review.
+            </p>
+            <VendorInquiriesList mode="received" emptyText="No hire requests yet. Venues can request you from your listing page." />
+          </>
+        ) : mode === 'list' ? (
           <>
             <p style={{ margin: 0, fontSize: 14, color: 'var(--sec-text-muted)', lineHeight: 1.5 }}>
               List one or more services venues can hire — chip & dip, AV gear, DJ sets, decor, and more.
-              Interested venues will send you a friend request to chat.
+              Venues can send you hire requests and message you directly from your listing.
             </p>
 
             {isLoading ? (
@@ -183,7 +258,17 @@ export default function VendorBusinessSettings() {
                             </div>
                             <div className="text-xs mt-0.5" style={{ color: 'var(--sec-text-muted)' }}>
                               {vendorCategoryLabel(v.category)}
-                              {v.is_published === false ? ' · Draft' : ' · Published'}
+                              {v.unpublished_by_admin
+                                ? ' · Unpublished by SEC'
+                                : v.is_published === false
+                                  ? ' · Draft'
+                                  : ' · Published'}
+                            </div>
+                            <div className="text-xs mt-1 flex items-center gap-1" style={{ color: 'var(--sec-text-secondary)' }}>
+                              <Star className="w-3 h-3" />
+                              {v.rating?.count
+                                ? `${v.rating.average.toFixed(1)} · ${v.rating.count} ${v.rating.count === 1 ? 'review' : 'reviews'}`
+                                : 'No reviews yet'}
                             </div>
                           </div>
                         </div>
@@ -192,8 +277,14 @@ export default function VendorBusinessSettings() {
                   </div>
                 )}
 
+                {vendors.length >= (data?.max_listings || 10) ? (
+                  <p style={{ margin: 0, fontSize: 13, color: 'var(--sec-text-muted)' }}>
+                    You have reached the maximum of {data?.max_listings || 10} listings.
+                  </p>
+                ) : null}
                 <button
                   type="button"
+                  disabled={vendors.length >= (data?.max_listings || 10)}
                   onClick={startCreate}
                   className="w-full flex items-center justify-center gap-2 min-h-[48px] rounded-xl font-semibold"
                   style={{
@@ -217,7 +308,14 @@ export default function VendorBusinessSettings() {
                 : 'Update this listing. Changes go live when published.'}
             </p>
 
-            <VendorListingForm value={draft} onChange={setDraft} cityHint={userProfile?.city} />
+            {mode === 'edit' && editing?.unpublished_by_admin ? (
+              <div className="p-3 rounded-xl text-sm" style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.35)', color: '#fca5a5' }}>
+                SEC moderation unpublished this listing{editing.unpublished_reason ? `: ${editing.unpublished_reason}` : '.'} You can
+                still edit it, but contact support to have it published again.
+              </div>
+            ) : null}
+
+            <VendorListingForm value={draft} onChange={setDraft} cityHint={userProfile?.city} showExtendedFields />
 
             <label
               style={{

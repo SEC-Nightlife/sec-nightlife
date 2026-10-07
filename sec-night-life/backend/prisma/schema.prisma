@@ -191,6 +191,17 @@ enum NotificationType {
   ACCOUNT_SUSPENDED
   ACCOUNT_UNSUSPENDED
   SAFETY_REPORT_UPDATE
+  VENDOR_REVIEW_RECEIVED
+  VENDOR_INQUIRY_RECEIVED
+  VENDOR_INQUIRY_UPDATED
+}
+
+enum VendorInquiryStatus {
+  REQUESTED
+  ACCEPTED
+  DECLINED
+  COMPLETED
+  CANCELLED
 }
 
 enum LegalDocumentType {
@@ -433,6 +444,9 @@ model User {
   inAppNotifications          InAppNotification[]
   friendActivities            FriendActivity[]
   vendorBusinesses            VendorBusiness[]
+  vendorReviewsGiven          VendorReview[]             @relation("VendorReviewsGiven")
+  venueVendorReviewsAuthored  VenueVendorReview[]        @relation("VenueVendorReviewsAuthored")
+  vendorInquiriesSent         VendorInquiry[]            @relation("VendorInquiriesSent")
   reviewsGiven                UserReview[]               @relation("ReviewsGiven")
   reviewsReceived             UserReview[]               @relation("ReviewsReceived")
   venueUserReviewsAuthored    VenueUserReview[]          @relation("VenueUserReviewsAuthored")
@@ -570,22 +584,108 @@ model VendorBusiness {
   category    String
   description String?   @db.Text
   website     String?
+  phone       String?
+  email       String?
+  instagram   String?
+  whatsapp    String?
+  priceFromZar   Float?   @map("price_from_zar")
+  priceUnit      String?  @map("price_unit")
+  quoteOnRequest Boolean  @default(false) @map("quote_on_request")
+  serviceArea    String?  @map("service_area")
   city        String?
+  country     String?
   latitude    Float?
   longitude   Float?
   isPublished Boolean   @default(true) @map("is_published")
+  unpublishedByAdminAt DateTime? @map("unpublished_by_admin_at")
+  unpublishedReason    String?   @map("unpublished_reason")
   createdAt   DateTime  @default(now()) @map("created_at")
   updatedAt   DateTime  @updatedAt @map("updated_at")
   deletedAt   DateTime? @map("deleted_at")
 
-  user   User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
-  images VendorBusinessImage[]
+  user         User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  images       VendorBusinessImage[]
+  reviews      VendorReview[]
+  venueReviews VenueVendorReview[]
+  inquiries    VendorInquiry[]
 
   @@index([userId])
   @@index([category])
   @@index([city])
   @@index([isPublished])
   @@map("vendor_businesses")
+}
+
+model VendorReview {
+  id               String    @id @default(cuid())
+  vendorBusinessId String    @map("vendor_business_id")
+  reviewerId       String    @map("reviewer_id")
+  inquiryId        String?   @map("inquiry_id")
+  rating           Int
+  comment          String    @db.Text
+  flagged          Boolean   @default(false)
+  flagReason       String?   @map("flag_reason") @db.Text
+  flaggedAt        DateTime? @map("flagged_at")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+
+  vendorBusiness VendorBusiness @relation(fields: [vendorBusinessId], references: [id], onDelete: Cascade)
+  reviewer       User           @relation("VendorReviewsGiven", fields: [reviewerId], references: [id], onDelete: Cascade)
+
+  @@unique([reviewerId, vendorBusinessId])
+  @@index([vendorBusinessId])
+  @@index([flagged])
+  @@map("vendor_reviews")
+}
+
+model VenueVendorReview {
+  id               String    @id @default(cuid())
+  vendorBusinessId String    @map("vendor_business_id")
+  venueId          String    @map("venue_id")
+  authorUserId     String    @map("author_user_id")
+  inquiryId        String?   @map("inquiry_id")
+  rating           Int
+  comment          String    @db.Text
+  flagged          Boolean   @default(false)
+  flagReason       String?   @map("flag_reason") @db.Text
+  flaggedAt        DateTime? @map("flagged_at")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+
+  vendorBusiness VendorBusiness @relation(fields: [vendorBusinessId], references: [id], onDelete: Cascade)
+  venue          Venue          @relation(fields: [venueId], references: [id], onDelete: Cascade)
+  author         User           @relation("VenueVendorReviewsAuthored", fields: [authorUserId], references: [id], onDelete: Cascade)
+
+  @@unique([venueId, vendorBusinessId])
+  @@index([vendorBusinessId])
+  @@index([authorUserId])
+  @@index([flagged])
+  @@map("venue_vendor_reviews")
+}
+
+model VendorInquiry {
+  id               String              @id @default(cuid())
+  vendorBusinessId String              @map("vendor_business_id")
+  venueId          String              @map("venue_id")
+  requesterUserId  String              @map("requester_user_id")
+  eventDate        DateTime?           @map("event_date")
+  message          String              @db.Text
+  status           VendorInquiryStatus @default(REQUESTED)
+  vendorResponse   String?             @map("vendor_response") @db.Text
+  respondedAt      DateTime?           @map("responded_at")
+  completedAt      DateTime?           @map("completed_at")
+  cancelledAt      DateTime?           @map("cancelled_at")
+  createdAt        DateTime            @default(now()) @map("created_at")
+  updatedAt        DateTime            @updatedAt @map("updated_at")
+
+  vendorBusiness VendorBusiness @relation(fields: [vendorBusinessId], references: [id], onDelete: Cascade)
+  venue          Venue          @relation(fields: [venueId], references: [id], onDelete: Cascade)
+  requester      User           @relation("VendorInquiriesSent", fields: [requesterUserId], references: [id], onDelete: Cascade)
+
+  @@index([vendorBusinessId, status])
+  @@index([venueId])
+  @@index([requesterUserId])
+  @@map("vendor_inquiries")
 }
 
 model VendorBusinessImage {
@@ -686,6 +786,8 @@ model Venue {
   refundRequests      RefundRequest[]
   seatingPlans        VenueSeatingPlan[]
   orderFulfillments   OrderFulfillment[]
+  vendorReviewsGiven  VenueVendorReview[]
+  vendorInquiries     VendorInquiry[]
 
   @@index([ownerUserId])
   @@index([city])

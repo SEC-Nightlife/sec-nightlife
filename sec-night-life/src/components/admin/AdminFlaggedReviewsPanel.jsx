@@ -17,6 +17,30 @@ function FlaggedReviewCard({ review, reviewType, actionLoading, onDismiss, onRem
         </p>
       );
     }
+    if (reviewType === 'vendor' || reviewType === 'venue_vendor') {
+      return (
+        <p className="text-sm">
+          {reviewType === 'vendor' ? (
+            <>
+              <span className="font-medium">{review.reviewer?.fullName || review.reviewer?.username}</span>
+              <span className="text-[var(--sec-text-muted)]"> @{review.reviewer?.username}</span>
+            </>
+          ) : (
+            <span className="font-medium">{review.venue?.name}</span>
+          )}
+          {' → '}
+          <a
+            href={`/VendorDetail?id=${encodeURIComponent(review.vendor?.id || '')}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="font-medium underline"
+          >
+            {review.vendor?.name || 'Vendor'}
+          </a>
+          <span className="text-[var(--sec-text-muted)]"> (vendor)</span>
+        </p>
+      );
+    }
     if (reviewType === 'venue') {
       return (
         <p className="text-sm">
@@ -75,8 +99,16 @@ function FlaggedReviewCard({ review, reviewType, actionLoading, onDismiss, onRem
   );
 }
 
+const EMPTY_FLAGGED = {
+  userReviews: [],
+  venueReviews: [],
+  venueUserReviews: [],
+  vendorReviews: [],
+  venueVendorReviews: [],
+};
+
 export default function AdminFlaggedReviewsPanel({ onFlaggedCountChange }) {
-  const [flaggedReviews, setFlaggedReviews] = useState({ userReviews: [], venueReviews: [], venueUserReviews: [] });
+  const [flaggedReviews, setFlaggedReviews] = useState(EMPTY_FLAGGED);
   const [actionLoading, setActionLoading] = useState(null);
   const [loading, setLoading] = useState(true);
 
@@ -87,12 +119,14 @@ export default function AdminFlaggedReviewsPanel({ onFlaggedCountChange }) {
         userReviews: res?.userReviews || [],
         venueReviews: res?.venueReviews || [],
         venueUserReviews: res?.venueUserReviews || [],
+        vendorReviews: res?.vendorReviews || [],
+        venueVendorReviews: res?.venueVendorReviews || [],
       };
       setFlaggedReviews(data);
-      const count = data.userReviews.length + data.venueReviews.length + data.venueUserReviews.length;
+      const count = Object.values(data).reduce((n, list) => n + list.length, 0);
       onFlaggedCountChange?.(count);
     } catch (err) {
-      setFlaggedReviews({ userReviews: [], venueReviews: [], venueUserReviews: [] });
+      setFlaggedReviews(EMPTY_FLAGGED);
       onFlaggedCountChange?.(0);
       toast.error(`Could not load flagged reviews${err?.message ? `: ${err.message}` : ''}`);
     }
@@ -139,9 +173,7 @@ export default function AdminFlaggedReviewsPanel({ onFlaggedCountChange }) {
     return <AdminEmptyState message="Loading flagged reviews…" />;
   }
 
-  const isEmpty = flaggedReviews.userReviews?.length === 0
-    && flaggedReviews.venueReviews?.length === 0
-    && flaggedReviews.venueUserReviews?.length === 0;
+  const isEmpty = Object.values(flaggedReviews).every((list) => !list?.length);
 
   return (
     <div className="space-y-6">
@@ -199,6 +231,44 @@ export default function AdminFlaggedReviewsPanel({ onFlaggedCountChange }) {
                     key={r.id}
                     review={r}
                     reviewType="venue_user"
+                    actionLoading={actionLoading}
+                    onDismiss={handleDismissFlagged}
+                    onRemove={handleRemoveFlagged}
+                  />
+                ))
+              )}
+            </div>
+          </div>
+          <div>
+            <h4 className="text-sm font-medium text-[var(--sec-text-muted)] mb-2">Vendor reviews (person → vendor)</h4>
+            <div className="space-y-3">
+              {(flaggedReviews.vendorReviews || []).length === 0 ? (
+                <p className="text-xs text-[var(--sec-text-muted)]">None</p>
+              ) : (
+                flaggedReviews.vendorReviews.map((r) => (
+                  <FlaggedReviewCard
+                    key={r.id}
+                    review={r}
+                    reviewType="vendor"
+                    actionLoading={actionLoading}
+                    onDismiss={handleDismissFlagged}
+                    onRemove={handleRemoveFlagged}
+                  />
+                ))
+              )}
+            </div>
+          </div>
+          <div>
+            <h4 className="text-sm font-medium text-[var(--sec-text-muted)] mb-2">Vendor reviews (venue → vendor)</h4>
+            <div className="space-y-3">
+              {(flaggedReviews.venueVendorReviews || []).length === 0 ? (
+                <p className="text-xs text-[var(--sec-text-muted)]">None</p>
+              ) : (
+                flaggedReviews.venueVendorReviews.map((r) => (
+                  <FlaggedReviewCard
+                    key={r.id}
+                    review={r}
+                    reviewType="venue_vendor"
                     actionLoading={actionLoading}
                     onDismiss={handleDismissFlagged}
                     onRemove={handleRemoveFlagged}

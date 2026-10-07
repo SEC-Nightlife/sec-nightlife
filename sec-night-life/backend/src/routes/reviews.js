@@ -9,8 +9,12 @@ import { requireRole, requireAdmin } from '../middleware/rbac.js';
 import { checkUserReviewEligibility } from '../lib/reviewEligibility.js';
 import { createInAppNotification, createInAppNotificationsForUsers } from '../lib/inAppNotifications.js';
 import { notifyAdmins } from '../lib/adminNotify.js';
+import { countReviewsCreatedLastHour } from '../lib/reviewRateLimit.js';
+import vendorReviewRoutes from './vendorReviews.js';
 
 const router = Router();
+
+router.use('/vendors', vendorReviewRoutes);
 
 const ratingComment = z.object({
   rating: z.number().int().min(1).max(5),
@@ -97,16 +101,6 @@ async function fetchMergedProfileReviews(subjectUserId, skip, limit) {
   return { reviews: merged.slice(skip, skip + limit), total: merged.length };
 }
 
-async function countReviewsCreatedLastHour(reviewerId) {
-  const since = new Date(Date.now() - 60 * 60 * 1000);
-  const [uc, vc, vuc] = await Promise.all([
-    prisma.userReview.count({ where: { reviewerId, createdAt: { gte: since } } }),
-    prisma.venueReview.count({ where: { reviewerId, createdAt: { gte: since } } }),
-    prisma.venueUserReview.count({ where: { authorUserId: reviewerId, createdAt: { gte: since } } }),
-  ]);
-  return uc + vc + vuc;
-}
-
 async function getSuperAdminUserIds() {
   const rows = await prisma.user.findMany({
     where: { role: 'SUPER_ADMIN', deletedAt: null, suspendedAt: null },
@@ -122,7 +116,8 @@ router.get('/me/given', authenticateToken, async (req, res, next) => {
     const limit = 10;
     const skip = (page - 1) * limit;
 
-    const [userRows, venueUserRows] = await Promise.all([
+    const vendorSelect = { select: { id: true, name: true, category: true } };
+    const [userRows, venueUserRows, vendorRows, venueVendorRows] = await Promise.all([
       prisma.userReview.findMany({
         where: { reviewerId: req.userId, flagged: false },
         include: {
@@ -151,7 +146,17 @@ router.get('/me/given', authenticateToken, async (req, res, next) => {
           venue: { select: { id: true, name: true } },
         },
       }),
+      prisma.vendorReview.findMany({
+        where: { reviewerId: req.userId, flagged: false },
+        include: { vendorBusiness: vendorSelect },
+      }),
+      prisma.venueVendorReview.findMany({
+        where: { authorUserId: req.userId, flagged: false },
+        include: { vendorBusiness: vendorSelect, venue: { select: { id: true, name: true } } },
+      }),
     ]);
+
+    const mapVendor = (v) => (v ? { id: v.id, name: v.name, category: v.category } : null);
 
     const merged = [
       ...userRows.map((r) => ({
@@ -178,6 +183,30 @@ router.get('/me/given', authenticateToken, async (req, res, next) => {
         subject: mapReviewerUser(r.subject),
         venue: r.venue ? { id: r.venue.id, name: r.venue.name } : null,
       })),
+      ...vendorRows.map((r) => ({
+        id: r.id,
+        reviewSource: 'vendor',
+        rating: r.rating,
+        comment: r.comment,
+        createdAt: r.createdAt.toISOString(),
+        eventId: null,
+        event: null,
+        subject: null,
+        vendor: mapVendor(r.vendorBusiness),
+        venue: null,
+      })),
+      ...venueVendorRows.map((r) => ({
+        id: r.id,
+        reviewSource: 'venue_vendor',
+        rating: r.rating,
+        comment: r.comment,
+        createdAt: r.createdAt.toISOString(),
+        eventId: null,
+        event: null,
+        subject: null,
+        vendor: mapVendor(r.vendorBusiness),
+        venue: r.venue ? { id: r.venue.id, name: r.venue.name } : null,
+      })),
     ].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
 
     const total = merged.length;
@@ -197,7 +226,7 @@ router.get('/me/given', authenticateToken, async (req, res, next) => {
 // --- Admin (must be before /users/:userId) ---
 router.get('/admin/flagged', authenticateToken, requireAdmin, async (req, res, next) => {
   try {
-    const [userReviews, venueReviews, venueUserReviews] = await Promise.all([
+    const [userReviews, venueReviews, venueUserReviews, vendorReviews, venueVendorReviews] = await Promise.all([
       prisma.userReview.findMany({
         where: { flagged: true },
         orderBy: { flaggedAt: 'desc' },
@@ -234,7 +263,27 @@ router.get('/admin/flagged', authenticateToken, requireAdmin, async (req, res, n
           },
         },
       }),
+      prisma.vendorReview.findMany({
+        where: { flagged: true },
+        orderBy: { flaggedAt: 'desc' },
+        include: {
+          reviewer: {
+            select: { id: true, username: true, fullName: true, userProfile: { select: { avatarUrl: true } } },
+          },
+          vendorBusiness: { select: { id: true, name: true, userId: true } },
+        },
+      }),
+      prisma.venueVendorReview.findMany({
+        where: { flagged: true },
+        orderBy: { flaggedAt: 'desc' },
+        include: {
+          venue: { select: { id: true, name: true, ownerUserId: true } },
+          vendorBusiness: { select: { id: true, name: true, userId: true } },
+        },
+      }),
     ]);
+
+    const mapFlaggedVendor = (v) => (v ? { id: v.id, name: v.name, ownerUserId: v.userId } : null);
 
     res.json({
       userReviews: userReviews.map((r) => ({
@@ -271,6 +320,26 @@ router.get('/admin/flagged', authenticateToken, requireAdmin, async (req, res, n
         subject: mapReviewerUser(r.subject),
         venue: r.venue ? { id: r.venue.id, name: r.venue.name, ownerUserId: r.venue.ownerUserId } : null,
       })),
+      vendorReviews: vendorReviews.map((r) => ({
+        id: r.id,
+        type: 'vendor',
+        rating: r.rating,
+        comment: r.comment,
+        flagReason: r.flagReason,
+        flaggedAt: r.flaggedAt?.toISOString() ?? null,
+        reviewer: mapReviewerUser(r.reviewer),
+        vendor: mapFlaggedVendor(r.vendorBusiness),
+      })),
+      venueVendorReviews: venueVendorReviews.map((r) => ({
+        id: r.id,
+        type: 'venue_vendor',
+        rating: r.rating,
+        comment: r.comment,
+        flagReason: r.flagReason,
+        flaggedAt: r.flaggedAt?.toISOString() ?? null,
+        venue: r.venue ? { id: r.venue.id, name: r.venue.name, ownerUserId: r.venue.ownerUserId } : null,
+        vendor: mapFlaggedVendor(r.vendorBusiness),
+      })),
     });
   } catch (e) {
     next(e);
@@ -280,7 +349,7 @@ router.get('/admin/flagged', authenticateToken, requireAdmin, async (req, res, n
 router.patch(
   '/admin/:reviewType/:reviewId/dismiss',
   authenticateToken,
-  requireRole('SUPER_ADMIN'),
+  requireRole('ADMIN', 'SUPER_ADMIN'),
   async (req, res, next) => {
     try {
       const { reviewType, reviewId } = req.params;
@@ -308,6 +377,22 @@ router.patch(
         if (u.count === 0) return res.status(404).json({ error: 'Review not found' });
         return res.json({ ok: true });
       }
+      if (reviewType === 'vendor') {
+        const u = await prisma.vendorReview.updateMany({
+          where: { id: reviewId },
+          data: { flagged: false, flagReason: null, flaggedAt: null },
+        });
+        if (u.count === 0) return res.status(404).json({ error: 'Review not found' });
+        return res.json({ ok: true });
+      }
+      if (reviewType === 'venue_vendor') {
+        const u = await prisma.venueVendorReview.updateMany({
+          where: { id: reviewId },
+          data: { flagged: false, flagReason: null, flaggedAt: null },
+        });
+        if (u.count === 0) return res.status(404).json({ error: 'Review not found' });
+        return res.json({ ok: true });
+      }
       return res.status(400).json({ error: 'Invalid review type' });
     } catch (e) {
       next(e);
@@ -318,7 +403,7 @@ router.patch(
 router.delete(
   '/admin/:reviewType/:reviewId/remove',
   authenticateToken,
-  requireRole('SUPER_ADMIN'),
+  requireRole('ADMIN', 'SUPER_ADMIN'),
   async (req, res, next) => {
     try {
       const { reviewType, reviewId } = req.params;
@@ -373,6 +458,25 @@ router.delete(
           body: 'After review, we removed a flagged review from your profile.',
           referenceId: reviewId,
           referenceType: 'VENUE_USER_REVIEW_REMOVED',
+        });
+        return res.json({ ok: true });
+      }
+
+      if (reviewType === 'vendor' || reviewType === 'venue_vendor') {
+        const model = reviewType === 'vendor' ? prisma.vendorReview : prisma.venueVendorReview;
+        const row = await model.findUnique({
+          where: { id: reviewId },
+          include: { vendorBusiness: { select: { id: true, userId: true } } },
+        });
+        if (!row) return res.status(404).json({ error: 'Review not found' });
+        await model.delete({ where: { id: reviewId } });
+        await createInAppNotification({
+          userId: row.vendorBusiness.userId,
+          type: 'REVIEW_REMOVED_BY_ADMIN',
+          title: 'A flagged review has been removed',
+          body: 'After review, we removed a flagged review from your vendor listing.',
+          referenceId: `/VendorDetail?id=${row.vendorBusiness.id}`,
+          referenceType: 'ROUTE',
         });
         return res.json({ ok: true });
       }
@@ -514,7 +618,7 @@ router.post('/users/:userId/as-venue', authenticateToken, async (req, res, next)
     });
     if (!venue) return res.status(404).json({ error: 'Venue not found' });
     if (venue.ownerUserId !== req.userId) {
-      return res.status(403).json({ error: 'Forbidden' });
+      return res.status(403).json({ error: 'Only the venue owner can review on behalf of this venue.' });
     }
 
     const createdLastHour = await countReviewsCreatedLastHour(req.userId);

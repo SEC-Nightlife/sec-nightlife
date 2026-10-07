@@ -76,7 +76,7 @@ router.get('/venue/:venueId', authenticateToken, requireVerified, requireRole('A
         take: 200,
       }),
       prisma.venueReview.findMany({
-        where: { venueId },
+        where: { venueId, flagged: false },
         select: { rating: true },
         take: 500,
       }),

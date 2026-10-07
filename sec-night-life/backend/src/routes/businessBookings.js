@@ -2410,7 +2410,7 @@ async function computeVenueDashboardStats(venueIds, year) {
   }
 
   const reviewAgg = await prisma.venueReview.aggregate({
-    where: { venueId: { in: venueIds } },
+    where: { venueId: { in: venueIds }, flagged: false },
     _avg: { rating: true },
     _count: { id: true },
   });

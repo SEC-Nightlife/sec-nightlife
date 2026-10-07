@@ -3,7 +3,7 @@ import { Camera, X, ImagePlus } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { integrations } from '@/services/integrationService';
-import { VENDOR_CATEGORIES } from '@/lib/vendorCategories';
+import { VENDOR_CATEGORIES, VENDOR_PRICE_UNITS } from '@/lib/vendorCategories';
 
 const labelStyle = {
   fontSize: 11,
@@ -26,9 +26,9 @@ const inputStyle = {
 
 /**
  * Compact vendor listing form shared by onboarding + settings.
- * value: { name, category, description, website, images: string[] }
+ * value: { name, category, description, website, images: string[], ...extended fields when showExtendedFields }
  */
-export default function VendorListingForm({ value, onChange, cityHint }) {
+export default function VendorListingForm({ value, onChange, cityHint, showExtendedFields = false }) {
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState('');
   const fileRef = useRef(null);
@@ -67,7 +67,7 @@ export default function VendorListingForm({ value, onChange, cityHint }) {
 
   return (
     <div className="space-y-4">
-      {cityHint ? (
+      {cityHint && !showExtendedFields ? (
         <p style={{ fontSize: 12, color: 'var(--sec-text-muted)', margin: 0 }}>
           Listing city defaults to {cityHint}
         </p>
@@ -137,6 +137,103 @@ export default function VendorListingForm({ value, onChange, cityHint }) {
           style={inputStyle}
         />
       </div>
+
+      {showExtendedFields ? (
+        <>
+          <div>
+            <div style={labelStyle}>Pricing</div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <Input
+                type="number"
+                inputMode="decimal"
+                min={0}
+                value={value.price_from_zar ?? ''}
+                onChange={(e) => setField({ price_from_zar: e.target.value })}
+                placeholder="Starting price (R)"
+                style={{ ...inputStyle, flex: 1 }}
+                disabled={Boolean(value.quote_on_request)}
+              />
+              <select
+                value={value.price_unit || 'per_event'}
+                onChange={(e) => setField({ price_unit: e.target.value })}
+                disabled={Boolean(value.quote_on_request)}
+                style={{ ...inputStyle, padding: '0 10px', flex: 1 }}
+              >
+                {VENDOR_PRICE_UNITS.map((u) => (
+                  <option key={u.value} value={u.value}>
+                    {u.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8, fontSize: 13, color: 'var(--sec-text-secondary)' }}>
+              <input
+                type="checkbox"
+                checked={Boolean(value.quote_on_request)}
+                onChange={(e) => setField({ quote_on_request: e.target.checked })}
+              />
+              Quote on request (no fixed starting price)
+            </label>
+          </div>
+
+          <div>
+            <div style={labelStyle}>Location</div>
+            <Input
+              value={value.city || ''}
+              onChange={(e) => setField({ city: e.target.value })}
+              placeholder="City"
+              style={inputStyle}
+            />
+            <Input
+              value={value.service_area || ''}
+              onChange={(e) => setField({ service_area: e.target.value })}
+              placeholder="Areas you serve, e.g. Cape Town & Winelands"
+              style={{ ...inputStyle, marginTop: 8 }}
+              maxLength={200}
+            />
+          </div>
+
+          <div>
+            <div style={labelStyle}>Contact details</div>
+            <p style={{ fontSize: 12, color: 'var(--sec-text-muted)', margin: '0 0 8px' }}>
+              Phone, WhatsApp and email are only shown to signed-in SEC members.
+            </p>
+            <div className="space-y-2">
+              <Input
+                type="tel"
+                value={value.phone || ''}
+                onChange={(e) => setField({ phone: e.target.value })}
+                placeholder="Phone"
+                style={inputStyle}
+                maxLength={40}
+              />
+              <Input
+                type="tel"
+                value={value.whatsapp || ''}
+                onChange={(e) => setField({ whatsapp: e.target.value })}
+                placeholder="WhatsApp number (with country code)"
+                style={inputStyle}
+                maxLength={40}
+              />
+              <Input
+                type="email"
+                value={value.email || ''}
+                onChange={(e) => setField({ email: e.target.value })}
+                placeholder="Email"
+                style={inputStyle}
+                maxLength={200}
+              />
+              <Input
+                value={value.instagram || ''}
+                onChange={(e) => setField({ instagram: e.target.value })}
+                placeholder="Instagram handle"
+                style={inputStyle}
+                maxLength={100}
+              />
+            </div>
+          </div>
+        </>
+      ) : null}
 
       <div>
         <div style={labelStyle}>Photos</div>

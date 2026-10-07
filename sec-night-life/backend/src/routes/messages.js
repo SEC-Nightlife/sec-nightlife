@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
+import { hasVendorInquiryLink } from '../lib/vendorInquiries.js';
 import { authenticateToken } from '../middleware/auth.js';
 import { canAccessTable } from '../lib/access.js';
 import { orderedParticipants } from '../lib/conversationHelpers.js';
@@ -42,7 +43,7 @@ function mapMessage(m) {
   };
 }
 
-async function hasAcceptedFriendship(userA, userB) {
+async function canDirectMessage(userA, userB) {
   const f = await prisma.friendship.findFirst({
     where: {
       status: 'ACCEPTED',
@@ -53,7 +54,8 @@ async function hasAcceptedFriendship(userA, userB) {
     },
     select: { id: true },
   });
-  return !!f;
+  if (f) return true;
+  return hasVendorInquiryLink(userA, userB);
 }
 
 function otherParticipantId(conv, me) {
@@ -92,9 +94,9 @@ router.post('/conversations/find-or-create', authenticateToken, async (req, res,
     const me = req.userId;
     if (participantId === me) return res.status(400).json({ error: 'Invalid participant' });
 
-    const friends = await hasAcceptedFriendship(me, participantId);
+    const friends = await canDirectMessage(me, participantId);
     if (!friends) {
-      return res.status(403).json({ error: 'You can only message friends' });
+      return res.status(403).json({ error: 'You can only message friends, or vendors linked to a hire request' });
     }
 
     const targetProfile = await prisma.userProfile.findUnique({
@@ -152,7 +154,7 @@ router.get('/conversations', authenticateToken, async (req, res, next) => {
     for (const c of convs) {
       if (conversationHiddenForUser(c, me)) continue;
       const otherId = otherParticipantId(c, me);
-      const ok = await hasAcceptedFriendship(me, otherId);
+      const ok = await canDirectMessage(me, otherId);
       if (!ok) continue;
 
       const other = await prisma.user.findUnique({
@@ -216,7 +218,7 @@ router.get('/unread-total', authenticateToken, async (req, res, next) => {
     let dmUnread = 0;
     for (const c of convs) {
       const otherId = otherParticipantId(c, me);
-      if (!(await hasAcceptedFriendship(me, otherId))) continue;
+      if (!(await canDirectMessage(me, otherId))) continue;
       dmUnread += await prisma.directMessage.count({
         where: {
           conversationId: c.id,
@@ -292,7 +294,7 @@ router.get('/conversations/:conversationId', authenticateToken, async (req, res,
     }
 
     const otherId = otherParticipantId(c, me);
-    const ok = await hasAcceptedFriendship(me, otherId);
+    const ok = await canDirectMessage(me, otherId);
     if (!ok) return res.status(403).json({ message: 'You can only message friends.' });
 
     const limit = Math.min(parseInt(req.query.limit, 10) || 50, 50);
@@ -392,7 +394,7 @@ router.post('/conversations/:conversationId', authenticateToken, async (req, res
     }
 
     const otherId = otherParticipantId(c, me);
-    const friends = await hasAcceptedFriendship(me, otherId);
+    const friends = await canDirectMessage(me, otherId);
     if (!friends) {
       return res.status(403).json({
         message: 'You can only message friends. Send a friend request first.',

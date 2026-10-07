@@ -207,7 +207,7 @@ export async function buildHomeFeedPage(req) {
     ? await Promise.all([
         prisma.venueReview.groupBy({
           by: ['venueId'],
-          where: { venueId: { in: venueIds } },
+          where: { venueId: { in: venueIds }, flagged: false },
           _avg: { rating: true },
           _count: { _all: true },
         }),

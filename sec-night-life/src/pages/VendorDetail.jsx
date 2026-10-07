@@ -1,20 +1,50 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { MapPin, MessageCircle, UserPlus, Store, ChevronLeft, ChevronRight, ExternalLink } from 'lucide-react';
+import {
+  MapPin,
+  MessageCircle,
+  UserPlus,
+  Store,
+  ChevronLeft,
+  ChevronRight,
+  ExternalLink,
+  Phone,
+  Mail,
+  Instagram,
+  Briefcase,
+  CheckCircle2,
+  Pencil,
+  Tag,
+  Navigation,
+} from 'lucide-react';
 import { apiGet, apiPost } from '@/api/client';
 import { createPageUrl } from '@/utils';
 import { useAuth } from '@/lib/AuthContext';
-import { vendorCategoryLabel } from '@/lib/vendorCategories';
+import * as authService from '@/services/authService';
+import { vendorCategoryLabel, vendorPriceText, VENDOR_INQUIRY_STATUS_LABELS } from '@/lib/vendorCategories';
+import { formatZar } from '@/lib/money';
+import { StarRatingDisplay } from '@/components/reviews/StarRating';
+import VendorReviewsSection from '@/components/vendors/VendorReviewsSection';
+import HireRequestDialog from '@/components/vendors/HireRequestDialog';
+import { openDirectMessage } from '@/components/vendors/VendorInquiriesList';
+import ReportDialog from '@/components/moderation/ReportDialog';
 import { toast } from 'sonner';
+
+function whatsappHref(raw) {
+  const digits = String(raw || '').replace(/[^\d]/g, '');
+  return digits ? `https://wa.me/${digits}` : null;
+}
 
 export default function VendorDetail() {
   const [searchParams] = useSearchParams();
   const id = searchParams.get('id');
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user, isAuthenticated } = useAuth();
   const queryClient = useQueryClient();
   const [galleryIndex, setGalleryIndex] = useState(0);
+  const [hireOpen, setHireOpen] = useState(false);
+  const [friendRequested, setFriendRequested] = useState(false);
 
   const { data: vendor, isLoading } = useQuery({
     queryKey: ['vendor', id],
@@ -23,11 +53,18 @@ export default function VendorDetail() {
   });
 
   const ownerId = vendor?.owner?.user_id || vendor?.user_id;
+  const isOwn = Boolean(user?.id && ownerId && user.id === ownerId);
 
   const { data: friends = [] } = useQuery({
     queryKey: ['friends-list'],
     queryFn: () => apiGet('/api/friends'),
-    enabled: Boolean(user?.id),
+    enabled: Boolean(user?.id) && !isOwn,
+  });
+
+  const { data: hireStatus } = useQuery({
+    queryKey: ['vendor-hire-status', id],
+    queryFn: () => apiGet(`/api/vendors/${encodeURIComponent(id)}/hire-status`),
+    enabled: Boolean(id && user?.id && vendor && !isOwn && vendor.is_published),
   });
 
   const friendEntry = useMemo(() => {
@@ -35,15 +72,27 @@ export default function VendorDetail() {
     return friends.find((f) => f.id === ownerId) || null;
   }, [friends, ownerId]);
   const isFriend = Boolean(friendEntry);
-  const isOwn = Boolean(user?.id && ownerId && user.id === ownerId);
+  const myVenues = hireStatus?.venues || [];
+  const openInquiry = hireStatus?.open_inquiry || null;
+  const hasInquiryLink = Boolean(openInquiry || hireStatus?.completed_hire);
+  const canMessage = isFriend || hasInquiryLink;
+
+  useEffect(() => {
+    if (window.location.hash === '#reviews') {
+      const t = setTimeout(() => document.getElementById('reviews')?.scrollIntoView({ behavior: 'smooth' }), 400);
+      return () => clearTimeout(t);
+    }
+    return undefined;
+  }, [vendor?.id]);
 
   const friendRequestMutation = useMutation({
     mutationFn: () => apiPost('/api/friends/request', { receiverId: ownerId }),
     onSuccess: () => {
+      setFriendRequested(true);
       toast.success('Friend request sent');
       queryClient.invalidateQueries({ queryKey: ['friends-list'] });
     },
-    onError: (err) => toast.error(err?.message || 'Could not send friend request'),
+    onError: (err) => toast.error(err?.data?.error || err?.message || 'Could not send friend request'),
   });
 
   const openMessage = async () => {
@@ -52,17 +101,9 @@ export default function VendorDetail() {
         navigate(`${createPageUrl('Messages')}?dm=${encodeURIComponent(friendEntry.conversationId)}`);
         return;
       }
-      const conv = await apiPost('/api/messages/conversations/find-or-create', {
-        participantId: ownerId,
-      });
-      const cid = conv?.id || conv?.conversationId;
-      if (cid) {
-        navigate(`${createPageUrl('Messages')}?dm=${encodeURIComponent(cid)}`);
-      } else {
-        toast.error('Could not open conversation');
-      }
+      await openDirectMessage(navigate, ownerId);
     } catch (err) {
-      toast.error(err?.message || 'Could not open conversation');
+      toast.error(err?.data?.error || err?.message || 'Could not open conversation');
     }
   };
 
@@ -90,6 +131,70 @@ export default function VendorDetail() {
       </div>
     );
   }
+
+  const rating = vendor.rating || { average: 0, count: 0 };
+  const priceText = vendorPriceText(vendor, formatZar);
+  const wa = whatsappHref(vendor.whatsapp);
+  const location = [vendor.city, vendor.country].filter(Boolean).join(', ');
+
+  const renderCta = () => {
+    if (isOwn) {
+      return (
+        <button type="button" onClick={() => navigate(createPageUrl('VendorBusinessSettings'))} style={primaryCtaStyle}>
+          <Pencil size={18} /> Edit your listing
+        </button>
+      );
+    }
+    if (!isAuthenticated || !user?.id) {
+      return (
+        <button
+          type="button"
+          onClick={() => authService.redirectToLogin(window.location.href)}
+          style={primaryCtaStyle}
+        >
+          Sign in to contact this vendor
+        </button>
+      );
+    }
+    const primary =
+      myVenues.length > 0 ? (
+        openInquiry ? (
+          <button type="button" disabled style={{ ...primaryCtaStyle, opacity: 0.85, cursor: 'default' }}>
+            <CheckCircle2 size={18} />
+            Request {VENDOR_INQUIRY_STATUS_LABELS[openInquiry.status]?.toLowerCase() || 'sent'}
+          </button>
+        ) : (
+          <button type="button" onClick={() => setHireOpen(true)} style={primaryCtaStyle}>
+            <Briefcase size={18} /> Request to hire
+          </button>
+        )
+      ) : canMessage ? (
+        <button type="button" onClick={() => void openMessage()} style={primaryCtaStyle}>
+          <MessageCircle size={18} /> Message owner
+        </button>
+      ) : (
+        <button
+          type="button"
+          onClick={() => friendRequestMutation.mutate()}
+          disabled={friendRequestMutation.isPending || friendRequested}
+          style={friendRequested ? { ...primaryCtaStyle, opacity: 0.85, cursor: 'default' } : primaryCtaStyle}
+        >
+          {friendRequested ? <CheckCircle2 size={18} /> : <UserPlus size={18} />}
+          {friendRequestMutation.isPending ? 'Sending…' : friendRequested ? 'Friend request sent' : 'Send friend request'}
+        </button>
+      );
+    const showSecondaryMessage = myVenues.length > 0 && canMessage;
+    return (
+      <div className="flex gap-2">
+        <div className="flex-1">{primary}</div>
+        {showSecondaryMessage ? (
+          <button type="button" onClick={() => void openMessage()} style={secondaryCtaStyle} aria-label="Message owner">
+            <MessageCircle size={18} />
+          </button>
+        ) : null}
+      </div>
+    );
+  };
 
   return (
     <div className="min-h-screen pb-28" style={{ backgroundColor: 'var(--sec-bg-base)' }}>
@@ -168,42 +273,88 @@ export default function VendorDetail() {
       ) : null}
 
       <div className="px-5 pt-5 max-w-lg mx-auto">
+        {isOwn && vendor.unpublished_by_admin ? (
+          <div className="mb-4 p-3 rounded-xl text-sm" style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.35)', color: '#fca5a5' }}>
+            SEC moderation unpublished this listing{vendor.unpublished_reason ? `: ${vendor.unpublished_reason}` : '.'} Contact
+            support to have it reviewed.
+          </div>
+        ) : isOwn && !vendor.is_published ? (
+          <div className="mb-4 p-3 rounded-xl text-sm" style={{ background: 'var(--sec-bg-card)', border: '1px solid var(--sec-border)', color: 'var(--sec-text-muted)' }}>
+            This listing is a draft — only you can see it.
+          </div>
+        ) : null}
+
         <p style={{ margin: 0, fontSize: 12, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--sec-accent)' }}>
           {vendorCategoryLabel(vendor.category)}
         </p>
         <h1 style={{ margin: '8px 0 0', fontSize: 26, fontWeight: 700, color: 'var(--sec-text-primary)', letterSpacing: '-0.02em' }}>
           {vendor.name}
         </h1>
-        {vendor.city ? (
+
+        <a href="#reviews" className="flex items-center gap-2 mt-2" style={{ textDecoration: 'none' }}>
+          <StarRatingDisplay value={rating.average} size={16} />
+          <span style={{ fontSize: 13, color: 'var(--sec-text-secondary)' }}>
+            {rating.count > 0
+              ? `${rating.average.toFixed(1)} · ${rating.count} ${rating.count === 1 ? 'review' : 'reviews'}`
+              : 'No reviews yet'}
+          </span>
+        </a>
+
+        {location ? (
           <p style={{ margin: '8px 0 0', fontSize: 13, color: 'var(--sec-text-muted)', display: 'flex', alignItems: 'center', gap: 6 }}>
-            <MapPin size={14} /> {vendor.city}
+            <MapPin size={14} /> {location}
+          </p>
+        ) : null}
+        {vendor.service_area ? (
+          <p style={{ margin: '6px 0 0', fontSize: 13, color: 'var(--sec-text-muted)', display: 'flex', alignItems: 'center', gap: 6 }}>
+            <Navigation size={14} /> Serves {vendor.service_area}
+          </p>
+        ) : null}
+        {priceText ? (
+          <p style={{ margin: '6px 0 0', fontSize: 13, color: 'var(--sec-text-secondary)', display: 'flex', alignItems: 'center', gap: 6, fontWeight: 600 }}>
+            <Tag size={14} /> {priceText}
           </p>
         ) : null}
 
-        <p style={{ margin: '18px 0 0', fontSize: 15, lineHeight: 1.55, color: 'var(--sec-text-secondary)' }}>
+        <p style={{ margin: '18px 0 0', fontSize: 15, lineHeight: 1.55, color: 'var(--sec-text-secondary)', whiteSpace: 'pre-wrap' }}>
           {vendor.description}
         </p>
 
-        {vendor.website ? (
-          <a
-            href={vendor.website}
-            target="_blank"
-            rel="noopener noreferrer"
-            style={{
-              marginTop: 16,
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 8,
-              fontSize: 14,
-              fontWeight: 600,
-              color: 'var(--sec-accent)',
-              textDecoration: 'none',
-            }}
-          >
-            <ExternalLink size={16} />
-            Visit website
-          </a>
-        ) : null}
+        <div className="flex flex-col gap-2 mt-4">
+          {vendor.website ? (
+            <a href={vendor.website} target="_blank" rel="noopener noreferrer" style={contactLinkStyle}>
+              <ExternalLink size={16} /> Visit website
+            </a>
+          ) : null}
+          {vendor.instagram ? (
+            <a
+              href={`https://instagram.com/${encodeURIComponent(vendor.instagram)}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={contactLinkStyle}
+            >
+              <Instagram size={16} /> @{vendor.instagram}
+            </a>
+          ) : null}
+          {vendor.phone ? (
+            <a href={`tel:${vendor.phone.replace(/\s+/g, '')}`} style={contactLinkStyle}>
+              <Phone size={16} /> {vendor.phone}
+            </a>
+          ) : null}
+          {wa ? (
+            <a href={wa} target="_blank" rel="noopener noreferrer" style={contactLinkStyle}>
+              <MessageCircle size={16} /> WhatsApp
+            </a>
+          ) : null}
+          {vendor.email ? (
+            <a href={`mailto:${vendor.email}`} style={contactLinkStyle}>
+              <Mail size={16} /> {vendor.email}
+            </a>
+          ) : null}
+          {!user?.id && vendor.has_private_contact ? (
+            <p style={{ margin: 0, fontSize: 12, color: 'var(--sec-text-muted)' }}>Sign in to see phone, WhatsApp and email.</p>
+          ) : null}
+        </div>
 
         {vendor.owner ? (
           <Link
@@ -246,9 +397,25 @@ export default function VendorDetail() {
             </div>
           </Link>
         ) : null}
+
+        {user?.id && !isOwn ? (
+          <div className="mt-4">
+            <ReportDialog
+              targetType="vendor"
+              targetId={vendor.id}
+              targetLabel="vendor listing"
+              triggerLabel="Report listing"
+              triggerClassName="min-h-[40px] text-xs"
+            />
+          </div>
+        ) : null}
+
+        <div id="reviews">
+          <VendorReviewsSection vendorId={vendor.id} vendorName={vendor.name} ownerId={ownerId} />
+        </div>
       </div>
 
-      {!isOwn && ownerId ? (
+      {ownerId ? (
         <div
           style={{
             position: 'fixed',
@@ -259,28 +426,12 @@ export default function VendorDetail() {
             background: 'linear-gradient(to top, var(--sec-bg-base) 70%, transparent)',
           }}
         >
-          <div className="max-w-lg mx-auto">
-            {isFriend ? (
-              <button
-                type="button"
-                onClick={() => void openMessage()}
-                style={primaryCtaStyle}
-              >
-                <MessageCircle size={18} /> Message owner
-              </button>
-            ) : (
-              <button
-                type="button"
-                onClick={() => friendRequestMutation.mutate()}
-                disabled={friendRequestMutation.isPending}
-                style={primaryCtaStyle}
-              >
-                <UserPlus size={18} />
-                {friendRequestMutation.isPending ? 'Sending…' : 'Send friend request'}
-              </button>
-            )}
-          </div>
+          <div className="max-w-lg mx-auto">{renderCta()}</div>
         </div>
+      ) : null}
+
+      {myVenues.length > 0 ? (
+        <HireRequestDialog open={hireOpen} onOpenChange={setHireOpen} vendor={vendor} venues={myVenues} />
       ) : null}
     </div>
   );
@@ -300,6 +451,29 @@ const primaryCtaStyle = {
   justifyContent: 'center',
   gap: 8,
   cursor: 'pointer',
+};
+
+const secondaryCtaStyle = {
+  width: 50,
+  height: 50,
+  borderRadius: 'var(--radius-lg)',
+  border: '1px solid var(--sec-border)',
+  backgroundColor: 'var(--sec-bg-card)',
+  color: 'var(--sec-text-primary)',
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  cursor: 'pointer',
+};
+
+const contactLinkStyle = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: 8,
+  fontSize: 14,
+  fontWeight: 600,
+  color: 'var(--sec-accent)',
+  textDecoration: 'none',
 };
 
 function galleryNavStyle(side) {

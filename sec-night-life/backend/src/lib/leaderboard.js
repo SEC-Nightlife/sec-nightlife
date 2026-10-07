@@ -13,7 +13,7 @@ function clamp(v, min, max) {
   return Math.max(min, Math.min(max, v));
 }
 
-function confidenceAdjustedRating(avg, count) {
+export function confidenceAdjustedRating(avg, count) {
   if (!count) return 0;
   return (avg * count + 3 * 5) / (count + 5);
 }
@@ -152,6 +152,14 @@ export async function getPromotersLeaderboard({ page = 1, limit = 50, includeUnv
     const acceptanceMap = new Map();
     for (const row of legalAcceptances) if (!acceptanceMap.has(row.userId)) acceptanceMap.set(row.userId, row);
     const ratingMap = new Map(ratingsByUser.map((r) => [r.rateeUserId, r]));
+    const raterPairs = await prisma.serviceRating.groupBy({
+      by: ['rateeUserId', 'raterUserId'],
+      where: { rateeUserId: { in: userIds } },
+    });
+    const uniqueRaterMap = new Map();
+    for (const row of raterPairs) {
+      uniqueRaterMap.set(row.rateeUserId, (uniqueRaterMap.get(row.rateeUserId) || 0) + 1);
+    }
     const reportMap = new Map(reportsByUser.map((r) => [r.targetId, r._count._all]));
     const blockMap = new Map(blocksByUser.map((r) => [r.blockedId, r._count._all]));
 
@@ -162,7 +170,7 @@ export async function getPromotersLeaderboard({ page = 1, limit = 50, includeUnv
       const r = ratingMap.get(u.id);
       const avg = Number(r?._avg?.score ?? p?.serviceRatingAvg ?? 0);
       const ratingCount = Number(r?._count?._all ?? p?.serviceRatingCount ?? 0);
-      const uniqueRaters = Number(r?._count?.raterUserId ?? 0);
+      const uniqueRaters = uniqueRaterMap.get(u.id) || 0;
       const reports = reportMap.get(u.id) || 0;
       const blocks = blockMap.get(u.id) || 0;
       const legal = acceptanceMap.get(u.id);

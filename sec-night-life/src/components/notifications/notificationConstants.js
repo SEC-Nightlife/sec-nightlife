@@ -10,6 +10,7 @@ import {
   Megaphone,
   Store,
   Heart,
+  Star,
 } from 'lucide-react';
 
 export const NOTIFICATION_ICONS = {
@@ -30,6 +31,9 @@ export const NOTIFICATION_ICONS = {
   VENUE_FOLLOW: Heart,
   PLATFORM_ANNOUNCEMENT: Megaphone,
   VENDOR_LISTING_REMINDER: Store,
+  VENDOR_REVIEW_RECEIVED: Star,
+  VENDOR_INQUIRY_RECEIVED: Briefcase,
+  VENDOR_INQUIRY_UPDATED: Briefcase,
   table_request: Users,
   TABLE_REQUEST: Users,
   TABLE_APPROVED: Users,
@@ -71,4 +75,7 @@ export const NOTIFICATION_COLORS = {
   VENUE_FOLLOW: 'sec-badge-gold',
   PLATFORM_ANNOUNCEMENT: 'sec-badge-silver',
   VENDOR_LISTING_REMINDER: 'sec-badge-gold',
+  VENDOR_REVIEW_RECEIVED: 'sec-badge-gold',
+  VENDOR_INQUIRY_RECEIVED: 'sec-badge-success',
+  VENDOR_INQUIRY_UPDATED: 'sec-badge-silver',
 };

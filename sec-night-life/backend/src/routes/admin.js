@@ -364,7 +364,15 @@ router.patch('/reports/:id/resolve', async (req, res, next) => {
 router.post('/reports/:id/moderate', async (req, res, next) => {
   try {
     const { action, reason } = z.object({
-      action: z.enum(['suspend_user', 'unsuspend_user', 'reject_venue', 'pending_venue', 'cancel_event']),
+      action: z.enum([
+        'suspend_user',
+        'unsuspend_user',
+        'reject_venue',
+        'pending_venue',
+        'cancel_event',
+        'unpublish_vendor',
+        'republish_vendor',
+      ]),
       reason: z.string().min(3).max(500),
     }).parse(req.body);
 
@@ -399,6 +407,32 @@ router.post('/reports/:id/moderate', async (req, res, next) => {
           complianceStatus: action === 'reject_venue' ? 'rejected' : 'pending',
           complianceRejectionNote: reason,
         },
+      });
+    }
+
+    if (action === 'unpublish_vendor' || action === 'republish_vendor') {
+      if (report.targetType !== 'vendor') return res.status(400).json({ error: 'Report target must be vendor' });
+      const vendor = await prisma.vendorBusiness.findFirst({
+        where: { id: report.targetId, deletedAt: null },
+        select: { id: true, userId: true, name: true },
+      });
+      if (!vendor) return res.status(404).json({ error: 'Vendor listing not found' });
+      const unpublish = action === 'unpublish_vendor';
+      await prisma.vendorBusiness.update({
+        where: { id: vendor.id },
+        data: unpublish
+          ? { isPublished: false, unpublishedByAdminAt: new Date(), unpublishedReason: reason }
+          : { isPublished: true, unpublishedByAdminAt: null, unpublishedReason: null },
+      });
+      await createInAppNotification({
+        userId: vendor.userId,
+        type: 'SAFETY_REPORT_UPDATE',
+        title: unpublish ? 'Your vendor listing was unpublished' : 'Your vendor listing is live again',
+        body: unpublish
+          ? `SEC moderation unpublished "${vendor.name}" after a report.\n\nReason: ${reason}`
+          : `SEC moderation restored "${vendor.name}".\n\nNote: ${reason}`,
+        referenceId: '/VendorBusinessSettings',
+        referenceType: 'ROUTE',
       });
     }
 
@@ -441,6 +475,10 @@ router.post('/reports/:id/moderate', async (req, res, next) => {
           ? `We restored access for the reported account.\n\nFeedback from the team:\n${reason}`
           : action === 'cancel_event'
             ? `We cancelled the reported event.\n\nFeedback from the team:\n${reason}`
+            : action === 'unpublish_vendor'
+              ? `We unpublished the reported vendor listing.\n\nFeedback from the team:\n${reason}`
+              : action === 'republish_vendor'
+                ? `We restored the vendor listing.\n\nFeedback from the team:\n${reason}`
             : action === 'reject_venue'
               ? `We rejected the venue compliance submission.\n\nFeedback from the team:\n${reason}`
               : `We updated the venue compliance status.\n\nFeedback from the team:\n${reason}`;

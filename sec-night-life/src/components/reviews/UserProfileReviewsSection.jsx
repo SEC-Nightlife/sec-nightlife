@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { formatDistanceToNow } from 'date-fns';
 import { Flag, Loader2, Building2 } from 'lucide-react';
@@ -22,7 +22,19 @@ import { Textarea } from '@/components/ui/textarea';
 import { toast } from 'sonner';
 import { StarRatingDisplay, StarRatingInput } from './StarRating';
 
+const GIVEN_REVIEW_DELETE_URL = {
+  user: (id) => `/api/reviews/users/review/${id}`,
+  venue: (id) => `/api/reviews/venues/users/review/${id}`,
+  vendor: (id) => `/api/reviews/vendors/review/${id}`,
+  venue_vendor: (id) => `/api/reviews/vendors/venue-review/${id}`,
+};
+
+function isVendorReview(r) {
+  return r.reviewSource === 'vendor' || r.reviewSource === 'venue_vendor';
+}
+
 function ReviewsIGave({ onEdit }) {
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [deleting, setDeleting] = useState(false);
@@ -36,11 +48,8 @@ function ReviewsIGave({ onEdit }) {
     if (!deleteTarget) return;
     setDeleting(true);
     try {
-      const url =
-        deleteTarget.reviewSource === 'venue'
-          ? `/api/reviews/venues/users/review/${deleteTarget.id}`
-          : `/api/reviews/users/review/${deleteTarget.id}`;
-      await apiDelete(url);
+      const toUrl = GIVEN_REVIEW_DELETE_URL[deleteTarget.reviewSource] || GIVEN_REVIEW_DELETE_URL.user;
+      await apiDelete(toUrl(deleteTarget.id));
       toast.success('Review deleted');
       setDeleteTarget(null);
       queryClient.invalidateQueries({ queryKey: ['reviews-me-given'] });
@@ -65,8 +74,15 @@ function ReviewsIGave({ onEdit }) {
         {rows.map((r) => (
           <li key={r.id} className="rounded-xl border border-[#262629] bg-[#141416] p-4 flex justify-between gap-2 items-start">
             <div className="min-w-0">
-              <p className="text-sm font-medium truncate">@{r.subject?.username}</p>
-              {r.reviewSource === 'venue' && r.venue?.name && (
+              {isVendorReview(r) ? (
+                <>
+                  <p className="text-sm font-medium truncate">{r.vendor?.name || 'Vendor'}</p>
+                  <p className="text-xs text-gray-500">Vendor review</p>
+                </>
+              ) : (
+                <p className="text-sm font-medium truncate">@{r.subject?.username}</p>
+              )}
+              {(r.reviewSource === 'venue' || r.reviewSource === 'venue_vendor') && r.venue?.name && (
                 <p className="text-xs text-gray-500">As {r.venue.name}</p>
               )}
               {r.event?.name && <p className="text-xs text-gray-500">From {r.event.name}</p>}
@@ -74,7 +90,16 @@ function ReviewsIGave({ onEdit }) {
               <p className="text-sm text-gray-300 mt-2 whitespace-pre-wrap">{r.comment}</p>
             </div>
             <div className="flex flex-col gap-2 shrink-0">
-              <Button type="button" variant="outline" className="min-h-[44px]" onClick={() => onEdit(r)}>
+              <Button
+                type="button"
+                variant="outline"
+                className="min-h-[44px]"
+                onClick={() =>
+                  isVendorReview(r) && r.vendor?.id
+                    ? navigate(`${createPageUrl('VendorDetail')}?id=${encodeURIComponent(r.vendor.id)}#reviews`)
+                    : onEdit(r)
+                }
+              >
                 Edit
               </Button>
               <Button

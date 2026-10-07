@@ -191,6 +191,35 @@ export default function AdminReportsPanel() {
                   Cancel event
                 </Button>
               )}
+              {r.targetType === 'vendor' && (
+                <>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="border-red-500/50 text-red-400"
+                    disabled={!!actionLoading}
+                    onClick={() => moderateFromReport(r.id, 'unpublish_vendor')}
+                  >
+                    Unpublish vendor listing
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={!!actionLoading}
+                    onClick={() => moderateFromReport(r.id, 'republish_vendor')}
+                  >
+                    Restore listing
+                  </Button>
+                  <a
+                    href={`/VendorDetail?id=${encodeURIComponent(r.targetId)}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-xs underline self-center"
+                  >
+                    View listing
+                  </a>
+                </>
+              )}
             </div>
           </div>
         ))

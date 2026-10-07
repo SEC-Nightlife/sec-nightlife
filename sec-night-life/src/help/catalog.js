@@ -1,5 +1,12 @@
 import { refundsPartygoer, refundsVenue, payouts } from './content/refunds-payouts';
-import { vendorsOverview, vendorsBecome, jobsVenue, jobsPartygoer } from './content/vendors-jobs';
+import {
+  vendorsOverview,
+  vendorsBecome,
+  vendorReviewsArticle,
+  vendorHiringArticle,
+  jobsVenue,
+  jobsPartygoer,
+} from './content/vendors-jobs';
 import {
   minimumSpend,
   automaticGroups,
@@ -50,6 +57,8 @@ export const HELP_ARTICLES = [
   boostTablesEvents,
   vendorsOverview,
   vendorsBecome,
+  vendorHiringArticle,
+  vendorReviewsArticle,
   jobsPartygoer,
   jobsVenue,
   verifiedPromoter,
