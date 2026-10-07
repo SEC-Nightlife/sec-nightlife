@@ -33,6 +33,7 @@ import { toast } from 'sonner';
 import { useQuery } from '@tanstack/react-query';
 import GoogleAddressInput from '@/components/GoogleAddressInput';
 import CountryCityPicker from '@/components/location/CountryCityPicker';
+import PhoneNumberInput from '@/components/location/PhoneNumberInput';
 import { DEFAULT_COUNTRY_CODE, guessCountryFromBrowser, normalizeCountryCode } from '@/lib/countries';
 import GoogleMapDisplay from '@/components/GoogleMapDisplay';
 import SecLogo from '@/components/ui/SecLogo';
@@ -1183,15 +1184,17 @@ export default function VenueOnboarding() {
                    />
                  )}
 
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 gap-4">
                   <div>
                     <Label className="text-gray-400 text-sm">Phone</Label>
-                    <Input
-                      placeholder="+27..."
+                    <PhoneNumberInput
+                      className="mt-2"
                       value={formData.phone}
-                      onChange={(e) => setFormData(prev => ({ ...prev, phone: e.target.value }))}
-                      className="mt-2 h-12 bg-[#141416] border-[#262629] rounded-xl"
+                      defaultCountry={formData.country_code}
+                      placeholder="e.g. 11 784 0330"
+                      onChange={(phone) => setFormData(prev => ({ ...prev, phone }))}
                     />
+                    <p className="text-xs text-gray-500 mt-1">Choose your country code, then enter your number.</p>
                   </div>
                   <div>
                     <Label className="text-gray-400 text-sm">Email</Label>
