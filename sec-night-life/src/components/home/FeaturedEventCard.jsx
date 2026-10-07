@@ -4,8 +4,10 @@ import { createPageUrl } from '@/utils';
 import { format, parseISO, isToday, isTomorrow } from 'date-fns';
 import { Clock, MapPin, Users } from 'lucide-react';
 import { getEventImage, NIGHTLIFE_PLACEHOLDERS } from '@/lib/placeholders';
+import { useMoney } from '@/hooks/useMoney';
 
 export default function FeaturedEventCard({ event }) {
+  const money = useMoney();
   const [imgError, setImgError] = useState(false);
   if (!event?.id) return null;
 
@@ -101,7 +103,7 @@ export default function FeaturedEventCard({ event }) {
             )}
             {event.has_entrance_fee && event.entrance_fee_amount > 0 && (
               <span style={{ fontWeight: 600, color: 'rgba(255,255,255,0.85)' }}>
-                Door R{event.entrance_fee_amount}
+                Door {money.format(event.entrance_fee_amount)}
               </span>
             )}
             {event.total_attending > 0 && (

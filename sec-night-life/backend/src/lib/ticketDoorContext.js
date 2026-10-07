@@ -8,6 +8,7 @@ export async function buildTicketDoorContext(prisma, ticket) {
    *   venue_id: string | null;
    *   venue_name: string | null;
    *   venue_city: string | null;
+   *   venue_timezone: string | null;
    *   event_title: string | null;
    *   event_code: string | null;
    *   table_allocation_label: string | null;
@@ -17,19 +18,21 @@ export async function buildTicketDoorContext(prisma, ticket) {
     venue_id: null,
     venue_name: null,
     venue_city: null,
+    venue_timezone: null,
     event_title: null,
     event_code: null,
     table_allocation_label: null,
     check_location_line: null,
   };
 
-  const venueSelect = { id: true, name: true, city: true, address: true, suburb: true };
+  const venueSelect = { id: true, name: true, city: true, address: true, suburb: true, timezone: true };
 
   const applyVenue = (v) => {
     if (!v) return;
     if (!ctx.venue_id && v.id) ctx.venue_id = v.id;
     if (!ctx.venue_name && v.name) ctx.venue_name = v.name;
     if (!ctx.venue_city && v.city) ctx.venue_city = v.city;
+    if (!ctx.venue_timezone && v.timezone) ctx.venue_timezone = v.timezone;
   };
 
   const applyEventBasics = (ev) => {

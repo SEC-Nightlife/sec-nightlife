@@ -38,14 +38,22 @@ export default function VenueComplianceCharter() {
 
       <LegalPolicySection title="2. Legal Compliance and Licensing">
         <p>
-          Venues are required to operate in full compliance with all applicable laws and regulations within the Republic
-          of South Africa. This includes, but is not limited to, obtaining and maintaining valid licenses for alcohol
-          service, entertainment operations, public gatherings, and business registration.
+          Venues are required to operate in full compliance with all applicable laws and regulations of the country, state,
+          province, and municipality in which they operate. This includes, but is not limited to, obtaining and maintaining
+          valid licenses for alcohol service, entertainment operations, public gatherings, and business registration, and
+          complying with local age limits, trading hours, consumer protection, tax, data protection, and employment laws.
         </p>
         <p>
-          Venues must ensure that all required documentation, including CIPC registration, SARS compliance records, annual
-          returns, and valid liquor licenses, are accurate, current, and submitted during onboarding. Venues are solely
-          responsible for ensuring that such documentation remains valid and up to date at all times.
+          Venues must ensure that all required documentation, including business registration, tax compliance records,
+          annual returns, and valid liquor licenses (for South African Venues: CIPC registration, SARS compliance records,
+          and liquor licenses issued under South African law, or the local equivalents in other countries), are accurate,
+          current, and submitted during onboarding. Venues are solely responsible for ensuring that such documentation
+          remains valid and up to date at all times.
+        </p>
+        <p>
+          Venues operating outside South Africa remain bound by the laws of their own jurisdiction. This Charter and any
+          dispute arising from it remain governed by the laws of the Republic of South Africa, without limiting any
+          mandatory local law that applies to the Venue.
         </p>
         <p>
           SEC reserves the right to request updated compliance documentation at any time and may suspend or remove Venue

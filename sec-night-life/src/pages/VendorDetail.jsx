@@ -23,7 +23,7 @@ import { createPageUrl } from '@/utils';
 import { useAuth } from '@/lib/AuthContext';
 import * as authService from '@/services/authService';
 import { vendorCategoryLabel, vendorPriceText, VENDOR_INQUIRY_STATUS_LABELS } from '@/lib/vendorCategories';
-import { formatZar } from '@/lib/money';
+import { useMoney } from '@/hooks/useMoney';
 import { StarRatingDisplay } from '@/components/reviews/StarRating';
 import VendorReviewsSection from '@/components/vendors/VendorReviewsSection';
 import HireRequestDialog from '@/components/vendors/HireRequestDialog';
@@ -37,6 +37,7 @@ function whatsappHref(raw) {
 }
 
 export default function VendorDetail() {
+  const money = useMoney();
   const [searchParams] = useSearchParams();
   const id = searchParams.get('id');
   const navigate = useNavigate();
@@ -133,7 +134,7 @@ export default function VendorDetail() {
   }
 
   const rating = vendor.rating || { average: 0, count: 0 };
-  const priceText = vendorPriceText(vendor, formatZar);
+  const priceText = vendorPriceText(vendor, money.format);
   const wa = whatsappHref(vendor.whatsapp);
   const location = [vendor.city, vendor.country].filter(Boolean).join(', ');
 

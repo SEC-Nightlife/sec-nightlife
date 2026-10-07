@@ -5,7 +5,7 @@ import * as authService from '@/services/authService';
 import { dataService } from '@/services/dataService';
 import { integrations } from '@/services/integrationService';
 import { apiGet, apiPatch } from '@/api/client';
-import { ChevronLeft, Camera, User, MapPin, Wine, BadgeCheck, Loader2, Check, X, Calendar, LocateFixed, FileText } from 'lucide-react';
+import { ChevronLeft, Camera, User, Wine, BadgeCheck, Loader2, Check, X, Calendar, LocateFixed, FileText } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import AvatarCropDialog from '@/components/profile/AvatarCropDialog';
 import GoogleAddressInput from '@/components/GoogleAddressInput';
@@ -13,12 +13,8 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { toast } from 'sonner';
-
-const CITIES = [
-  'Johannesburg', 'Cape Town', 'Durban', 'Pretoria', 'Sandton',
-  'Port Elizabeth', 'Bloemfontein', 'East London', 'Nelspruit', 'Polokwane',
-];
-const CITY_OTHER = '__other__';
+import CountryCityPicker from '@/components/location/CountryCityPicker';
+import { DEFAULT_COUNTRY_CODE, guessCountryFromBrowser, normalizeCountryCode } from '@/lib/countries';
 
 const DRINKS = [
   'Whiskey', 'Vodka', 'Gin', 'Tequila', 'Rum', 'Champagne',
@@ -42,6 +38,8 @@ export default function EditProfile() {
     username: '',
     bio: '',
     city: '',
+    country_code: '',
+    region: '',
     favorite_drink: '',
     gender: '',
     avatar_url: '',
@@ -50,8 +48,6 @@ export default function EditProfile() {
     longitude: null,
     location_label: '',
   });
-  const [cityMode, setCityMode] = useState('');
-  const [customCity, setCustomCity] = useState('');
   const [locating, setLocating] = useState(false);
   const [ageDeclarationAccepted, setAgeDeclarationAccepted] = useState(false);
   const [cropOpen, setCropOpen] = useState(false);
@@ -102,6 +98,9 @@ export default function EditProfile() {
         username: u,
         bio: profile.bio || '',
         city: profile.city || '',
+        country_code:
+          normalizeCountryCode(profile.country_code) || guessCountryFromBrowser() || DEFAULT_COUNTRY_CODE,
+        region: profile.region || '',
         favorite_drink: profile.favorite_drink || '',
         gender: profile.gender || '',
         avatar_url: profile.avatar_url || '',
@@ -110,10 +109,6 @@ export default function EditProfile() {
         longitude: profile.longitude ?? null,
         location_label: profile.location_label || '',
       });
-      const profileCity = profile.city || '';
-      const isListed = CITIES.includes(profileCity);
-      setCityMode(profileCity ? (isListed ? profileCity : CITY_OTHER) : '');
-      setCustomCity(isListed ? '' : profileCity);
       if (profile.age_verified || profile.verification_status === 'verified' || profile.verification_status === 'approved') {
         setAgeDeclarationAccepted(true);
       }
@@ -193,12 +188,14 @@ export default function EditProfile() {
         });
       }
 
-      const resolvedCity = cityMode === CITY_OTHER ? customCity.trim() : cityMode;
+      const resolvedCity = (formData.city || '').trim();
       const payload = {
         full_name: formData.full_name.trim(),
         username: normalizedUsername,
         bio: formData.bio,
         city: resolvedCity || null,
+        country_code: formData.country_code || null,
+        region: formData.region || null,
         favorite_drink: formData.favorite_drink || null,
         gender: formData.gender || null,
         avatar_url: formData.avatar_url || null,
@@ -233,8 +230,6 @@ export default function EditProfile() {
     textTransform: 'uppercase', color: 'var(--sec-text-muted)',
     marginBottom: 8,
   };
-
-  const citySelectValue = cityMode;
 
   return (
     <div style={{ minHeight: '100vh', backgroundColor: 'var(--sec-bg-base)', paddingBottom: 40 }}>
@@ -439,70 +434,22 @@ export default function EditProfile() {
             />
           </div>
 
-          <div>
-            <div style={labelStyle}>
-              <MapPin size={12} strokeWidth={2} />
-              City
-            </div>
-            <Select
-              value={citySelectValue || undefined}
-              onValueChange={(v) => {
-                setCityMode(v);
-                if (v !== CITY_OTHER) {
-                  setCustomCity('');
-                  setFormData((prev) => ({ ...prev, city: v }));
-                }
-              }}
-            >
-              <SelectTrigger style={{
-                height: 46,
-                backgroundColor: 'var(--sec-bg-elevated)',
-                border: '1px solid var(--sec-border)',
-                borderRadius: 'var(--radius-md)',
-                color: cityMode ? 'var(--sec-text-primary)' : 'var(--sec-text-muted)',
-                fontSize: 14,
-              }}>
-                <SelectValue placeholder="Select your city" />
-              </SelectTrigger>
-              <SelectContent style={{
-                backgroundColor: 'var(--sec-bg-elevated)',
-                border: '1px solid var(--sec-border)',
-                borderRadius: 'var(--radius-lg)',
-              }}>
-                {CITIES.map((city) => (
-                  <SelectItem
-                    key={city}
-                    value={city}
-                    style={{ color: 'var(--sec-text-primary)', cursor: 'pointer' }}
-                  >
-                    {city}
-                  </SelectItem>
-                ))}
-                <SelectItem value={CITY_OTHER} style={{ color: 'var(--sec-text-primary)', cursor: 'pointer' }}>
-                  Other
-                </SelectItem>
-              </SelectContent>
-            </Select>
-            {cityMode === CITY_OTHER ? (
-              <Input
-                value={customCity}
-                onChange={(e) => {
-                  setCustomCity(e.target.value);
-                  setFormData((prev) => ({ ...prev, city: e.target.value }));
-                }}
-                placeholder="Enter your city"
-                style={{
-                  marginTop: 10,
-                  height: 46,
-                  backgroundColor: 'var(--sec-bg-elevated)',
-                  border: '1px solid var(--sec-border)',
-                  borderRadius: 'var(--radius-md)',
-                  color: 'var(--sec-text-primary)',
-                  fontSize: 14,
-                }}
-              />
-            ) : null}
-          </div>
+          <CountryCityPicker
+            value={{
+              countryCode: formData.country_code,
+              city: formData.city,
+              region: formData.region,
+            }}
+            showRegion
+            onChange={(next) => {
+              setFormData((prev) => ({
+                ...prev,
+                country_code: next.countryCode || '',
+                city: next.city || '',
+                region: next.region || '',
+              }));
+            }}
+          />
 
           <div>
             <div style={labelStyle}>
@@ -574,6 +521,7 @@ export default function EditProfile() {
             <GoogleAddressInput
               label="Or enter a place"
               placeholder="Suburb, street, or landmark"
+              countryCode={formData.country_code}
               value={
                 formData.location_label
                   ? {

@@ -3,6 +3,7 @@ import { prisma } from '../lib/prisma.js';
 import { sendEmail } from '../lib/email.js';
 import { logger } from '../lib/logger.js';
 import { clearExpiredMenuSpecials } from '../lib/menuSpecials.js';
+import { zoneOf, zonedDateTimeToUtc } from '../lib/timezone.js';
 
 const router = Router();
 
@@ -19,15 +20,11 @@ function isCronAuthorized(req) {
   return false;
 }
 
-/** Calendar day + optional HH:mm (SAST +02:00) — aligns with venue events in ZA. */
+/** Calendar day + optional HH:mm as venue wall time (event time zone, default SAST). */
 function eventStartDateTime(event) {
-  const d = event.date instanceof Date ? event.date : new Date(event.date);
-  const y = d.getUTCFullYear();
-  const mo = String(d.getUTCMonth() + 1).padStart(2, '0');
-  const da = String(d.getUTCDate()).padStart(2, '0');
   const t =
     event.startTime && /^\d{2}:\d{2}$/.test(String(event.startTime)) ? String(event.startTime) : '18:00';
-  return new Date(`${y}-${mo}-${da}T${t}:00+02:00`);
+  return zonedDateTimeToUtc(event.date, t, zoneOf(event)) || new Date(event.date);
 }
 
 router.get('/expire-promotions', async (req, res, next) => {
@@ -181,6 +178,7 @@ router.get('/event-interest-reminders', async (req, res, next) => {
         title: true,
         date: true,
         startTime: true,
+        timezone: true,
         city: true,
       },
     });

@@ -23,9 +23,12 @@ import { usePreferences } from '@/context/PreferencesContext';
 import { getDirectionsActions } from '@/lib/openDirections';
 import { toast } from 'sonner';
 import { getCurrentLocation, locationErrorMessage } from '@/lib/getCurrentLocation';
+import { countryMapCenter, countryName } from '@/lib/countries';
 
-// Johannesburg coordinates as default
+// Last-resort centre when we know nothing about the viewer's location
 const DEFAULT_CENTER = { lat: -26.2041, lng: 28.0473 };
+
+const AREA_MODE_BY_SCOPE = { local: 'nearby', national: 'country', worldwide: 'all' };
 
 function parseCoord(value) {
   if (typeof value === 'number' && Number.isFinite(value)) return value;
@@ -58,12 +61,12 @@ function distanceKm(a, b) {
 }
 
 export default function Map() {
-  const { location: locPrefs, geoCoords, requestGeoCoords } = usePreferences();
+  const { location: locPrefs, geoCoords, requestGeoCoords, feedScope, viewerCountryCode } = usePreferences();
   const nearbyRadiusKm = Number(locPrefs?.radiusKm) > 0 ? Number(locPrefs.radiusKm) : 25;
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedItem, setSelectedItem] = useState(null);
   const [viewMode, setViewMode] = useState('venues'); // 'venues' | 'events' | 'tables'
-  const [areaMode, setAreaMode] = useState('nearby'); // 'nearby' | 'all'
+  const [areaMode, setAreaMode] = useState(() => AREA_MODE_BY_SCOPE[feedScope] || 'nearby'); // 'nearby' | 'country' | 'all'
   const [userLocation, setUserLocation] = useState(null);
   const [map, setMap] = useState(null);
   const [mapError, setMapError] = useState(null);
@@ -72,14 +75,19 @@ export default function Map() {
 
   const mapPinsScope = areaMode === 'all'
     ? 'all'
-    : `${userLocation?.lat ?? geoCoords?.lat ?? ''},${userLocation?.lng ?? geoCoords?.lng ?? ''},${nearbyRadiusKm}`;
+    : areaMode === 'country'
+      ? `country:${viewerCountryCode || ''}`
+      : `${userLocation?.lat ?? geoCoords?.lat ?? ''},${userLocation?.lng ?? geoCoords?.lng ?? ''},${nearbyRadiusKm}`;
 
   const { data: mapPins } = useQuery({
     queryKey: ['map-pins', mapPinsScope],
     queryFn: () => {
       const params = new URLSearchParams();
       if (areaMode === 'all') {
-        params.set('scope', 'all');
+        params.set('feed_scope', 'worldwide');
+      } else if (areaMode === 'country') {
+        params.set('feed_scope', 'national');
+        if (viewerCountryCode) params.set('country_code', viewerCountryCode);
       } else {
         const lat = userLocation?.lat ?? geoCoords?.lat;
         const lng = userLocation?.lng ?? geoCoords?.lng;
@@ -210,7 +218,7 @@ export default function Map() {
   const profileCity = (userProfile?.city || '').trim().toLowerCase();
 
   const isInUserArea = (mapPos, cityCandidates = []) => {
-    if (areaMode === 'all') return true;
+    if (areaMode !== 'nearby') return true;
     if (userLocation?.lat != null && userLocation?.lng != null && mapPos) {
       return distanceKm(userLocation, mapPos) <= nearbyRadiusKm;
     }
@@ -321,9 +329,15 @@ export default function Map() {
       }
 
       try {
+        const countryCenter = countryMapCenter(viewerCountryCode);
+        const initialCenter = geoCoords?.lat != null && geoCoords?.lng != null
+          ? { lat: geoCoords.lat, lng: geoCoords.lng }
+          : countryCenter
+            ? { lat: countryCenter.lat, lng: countryCenter.lng }
+            : DEFAULT_CENTER;
         const googleMap = new window.google.maps.Map(mapRef.current, {
-          zoom: 12,
-          center: DEFAULT_CENTER,
+          zoom: geoCoords?.lat != null ? 12 : countryCenter?.zoom ?? 12,
+          center: initialCenter,
           mapTypeControl: false,
           fullscreenControl: false,
           streetViewControl: false,
@@ -369,6 +383,22 @@ export default function Map() {
 
     initMap();
   }, [mapsStatus, map]);
+
+  // Without GPS, centre on the viewer's profile city once the map is up
+  const profileCityLabel = (userProfile?.city || '').trim();
+  useEffect(() => {
+    if (!map || userLocation || geoCoords?.lat != null || !profileCityLabel) return;
+    if (!window.google?.maps?.Geocoder) return;
+    const geocoder = new window.google.maps.Geocoder();
+    const request = { address: profileCityLabel };
+    if (viewerCountryCode) request.componentRestrictions = { country: viewerCountryCode };
+    geocoder.geocode(request, (results, status) => {
+      const loc = status === 'OK' ? results?.[0]?.geometry?.location : null;
+      if (!loc) return;
+      map.setCenter(loc);
+      map.setZoom(11);
+    });
+  }, [map, userLocation, geoCoords?.lat, profileCityLabel, viewerCountryCode]);
 
   // Update markers when filtered items change
   useEffect(() => {
@@ -628,6 +658,22 @@ export default function Map() {
           >
             Nearby
           </button>
+          {viewerCountryCode ? (
+            <button
+              onClick={() => setAreaMode('country')}
+              style={{
+                padding: '8px 14px',
+                borderRadius: 999,
+                fontSize: 12,
+                fontWeight: 600,
+                backgroundColor: areaMode === 'country' ? 'var(--sec-accent)' : 'var(--sec-bg-card)',
+                color: areaMode === 'country' ? 'var(--sec-bg-base)' : 'var(--sec-text-secondary)',
+                border: `1px solid ${areaMode === 'country' ? 'var(--sec-accent)' : 'var(--sec-border)'}`,
+              }}
+            >
+              {countryName(viewerCountryCode)}
+            </button>
+          ) : null}
           <button
             onClick={() => setAreaMode('all')}
             style={{
@@ -717,13 +763,13 @@ export default function Map() {
               <div style={{ padding: 32, textAlign: 'center', backgroundColor: 'var(--sec-bg-elevated)', borderRadius: 16, border: '1px solid var(--sec-border)' }}>
                 <MapPin size={32} strokeWidth={1.5} style={{ color: 'var(--sec-text-muted)', marginBottom: 12 }} />
                 <p style={{ color: 'var(--sec-text-primary)', fontWeight: 500, marginBottom: 4 }}>
-                  {areaMode === 'all'
+                  {areaMode !== 'nearby'
                     ? (hasNoItemsWithCoords ? 'No venues with map locations yet' : 'No venues match your search')
                     : (hasNoItemsWithCoords ? 'No venues in your area yet' : 'No venues match your search')}
                 </p>
                 <p style={{ color: 'var(--sec-text-muted)', fontSize: 13 }}>
                   {hasNoItemsWithCoords
-                    ? (areaMode === 'all'
+                    ? (areaMode !== 'nearby'
                       ? 'Venues will appear here once they have location coordinates.'
                       : 'Switch to All Areas to browse beyond your nearby area.')
                     : 'Try a different search term.'}
@@ -734,7 +780,7 @@ export default function Map() {
               <div style={{ padding: 32, textAlign: 'center', backgroundColor: 'var(--sec-bg-elevated)', borderRadius: 16, border: '1px solid var(--sec-border)' }}>
                 <Calendar size={32} strokeWidth={1.5} style={{ color: 'var(--sec-text-muted)', marginBottom: 12 }} />
                 <p style={{ color: 'var(--sec-text-primary)', fontWeight: 500 }}>
-                  {areaMode === 'all' ? 'No events found' : 'No events in your area'}
+                  {areaMode !== 'nearby' ? 'No events found' : 'No events in your area'}
                 </p>
                 <p style={{ color: 'var(--sec-text-muted)', fontSize: 13, marginTop: 6 }}>
                   {searchTerm ? 'Try a different search term.' : 'Create or publish an event to see it here.'}
@@ -744,7 +790,7 @@ export default function Map() {
             {viewMode === 'tables' && filteredTables.length === 0 && (
               <div style={{ padding: 32, textAlign: 'center', backgroundColor: 'var(--sec-bg-elevated)', borderRadius: 16, border: '1px solid var(--sec-border)' }}>
                 <p style={{ color: 'var(--sec-text-muted)' }}>
-                  {areaMode === 'all' ? 'No open tables found right now.' : 'No open tables in your area right now.'}
+                  {areaMode !== 'nearby' ? 'No open tables found right now.' : 'No open tables in your area right now.'}
                 </p>
               </div>
             )}

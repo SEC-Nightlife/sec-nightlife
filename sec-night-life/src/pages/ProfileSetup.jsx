@@ -35,12 +35,8 @@ import { markOnboardingComplete } from '@/lib/sessionCache';
 import GoogleAddressInput from '@/components/GoogleAddressInput';
 import VendorListingForm, { isVendorListingValid } from '@/components/vendors/VendorListingForm';
 import PayoutTrustBanner from '@/components/wallet/PayoutTrustBanner';
-
-const CITIES = [
-  'Johannesburg', 'Cape Town', 'Durban', 'Pretoria', 'Sandton',
-  'Port Elizabeth', 'Bloemfontein', 'East London', 'Nelspruit', 'Polokwane',
-];
-const CITY_OTHER = '__other__';
+import CountryCityPicker from '@/components/location/CountryCityPicker';
+import { DEFAULT_COUNTRY_CODE, guessCountryFromBrowser, normalizeCountryCode } from '@/lib/countries';
 
 const DRINKS = [
   'Whiskey', 'Vodka', 'Gin', 'Tequila', 'Rum', 'Champagne',
@@ -94,8 +90,6 @@ export default function ProfileSetup() {
   const [uploadProgress, setUploadProgress] = useState({});
   const [cropOpen, setCropOpen] = useState(false);
   const [cropSrc, setCropSrc] = useState(null);
-  const [cityMode, setCityMode] = useState(''); // '' | listed city | CITY_OTHER
-  const [customCity, setCustomCity] = useState('');
   const [locating, setLocating] = useState(false);
   const [hasVendorBusiness, setHasVendorBusiness] = useState(null); // null | true | false
   const [vendorDraft, setVendorDraft] = useState({
@@ -112,6 +106,8 @@ export default function ProfileSetup() {
     bio: '',
     avatar_url: '',
     city: '',
+    country_code: guessCountryFromBrowser() || DEFAULT_COUNTRY_CODE,
+    region: '',
     favorite_drink: '',
     gender: '',
     date_of_birth: '',
@@ -154,8 +150,6 @@ export default function ProfileSetup() {
           JSON.stringify({
             step,
             formData,
-            cityMode,
-            customCity,
             hasVendorBusiness,
             vendorDraft,
             ageDeclarationAccepted,
@@ -172,8 +166,6 @@ export default function ProfileSetup() {
     isEditMode,
     step,
     formData,
-    cityMode,
-    customCity,
     hasVendorBusiness,
     vendorDraft,
     ageDeclarationAccepted,
@@ -182,12 +174,6 @@ export default function ProfileSetup() {
   useEffect(() => {
     checkAuth();
   }, []);
-
-  const applyCityFromProfile = (profileCity) => {
-    const isListed = CITIES.includes(profileCity);
-    setCityMode(profileCity ? (isListed ? profileCity : CITY_OTHER) : '');
-    setCustomCity(isListed ? '' : profileCity);
-  };
 
   const checkAuth = async () => {
     try {
@@ -220,13 +206,14 @@ export default function ProfileSetup() {
         }
         setUserProfile(profile);
         const profileCity = profile.city || '';
-        applyCityFromProfile(profileCity);
         setFormData((prev) => ({
           ...prev,
           username: profile.username || '',
           bio: profile.bio || '',
           avatar_url: profile.avatar_url || '',
           city: profileCity,
+          country_code: normalizeCountryCode(profile.country_code) || prev.country_code,
+          region: profile.region || '',
           favorite_drink: profile.favorite_drink || '',
           gender: profile.gender || '',
           date_of_birth: profile.date_of_birth || '',
@@ -244,10 +231,7 @@ export default function ProfileSetup() {
 
       if (draft?.formData && typeof draft.formData === 'object') {
         setFormData((prev) => ({ ...prev, ...draft.formData }));
-        if (draft.formData.city) applyCityFromProfile(draft.formData.city);
       }
-      if (typeof draft?.cityMode === 'string') setCityMode(draft.cityMode);
-      if (typeof draft?.customCity === 'string') setCustomCity(draft.customCity);
       if (draft?.hasVendorBusiness === true || draft?.hasVendorBusiness === false) {
         setHasVendorBusiness(draft.hasVendorBusiness);
       }
@@ -321,12 +305,12 @@ export default function ProfileSetup() {
     return age >= 18;
   };
 
-  const resolvedCity = cityMode === CITY_OTHER ? customCity.trim() : cityMode;
+  const resolvedCity = (formData.city || '').trim();
 
   const canProceed = () => {
     if (step === 1) return formData.username && formData.bio.trim().length > 0;
     if (step === 2) {
-      return Boolean(resolvedCity) && Boolean(formData.favorite_drink);
+      return Boolean(formData.country_code) && Boolean(resolvedCity) && Boolean(formData.favorite_drink);
     }
     if (step === 3) {
       return (
@@ -364,6 +348,7 @@ export default function ProfileSetup() {
         const label =
           structured?.formattedAddress || `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
         const geoCity = (structured?.city || '').trim();
+        const geoCountry = normalizeCountryCode(structured?.country);
         setFormData((prev) => {
           const next = {
             ...prev,
@@ -373,21 +358,13 @@ export default function ProfileSetup() {
             suburb: structured?.suburb || prev.suburb || '',
             province: structured?.province || prev.province || '',
           };
-          if (geoCity && (!prev.city || CITIES.includes(geoCity))) {
+          if (geoCity && !prev.city) {
             next.city = geoCity;
+            if (geoCountry) next.country_code = geoCountry;
+            if (structured?.province) next.region = structured.province;
           }
           return next;
         });
-        if (geoCity && CITIES.includes(geoCity)) {
-          setCityMode(geoCity);
-          setCustomCity('');
-        } else if (geoCity) {
-          setCityMode((mode) => {
-            if (mode && mode !== '' && mode !== CITY_OTHER) return mode;
-            setCustomCity(geoCity);
-            return CITY_OTHER;
-          });
-        }
       } catch {
         setFormData((prev) => ({
           ...prev,
@@ -414,6 +391,7 @@ export default function ProfileSetup() {
       description: vendorDraft.description.trim(),
       website: vendorDraft.website?.trim() || null,
       city: resolvedCity || formData.city || null,
+      country: formData.country_code || null,
       latitude: formData.latitude,
       longitude: formData.longitude,
       is_published: true,
@@ -452,6 +430,8 @@ export default function ProfileSetup() {
         username: formData.username,
         bio: formData.bio,
         city: cityValue,
+        country_code: formData.country_code || null,
+        region: formData.region || formData.province || null,
         favorite_drink: formData.favorite_drink || null,
         gender: formData.gender || null,
         date_of_birth: formData.date_of_birth || null,
@@ -792,54 +772,27 @@ export default function ProfileSetup() {
                 <p className="text-sm" style={{ color: 'var(--sec-text-muted)' }}>Where are you? What do you drink?</p>
               </div>
 
-              <div>
-                <div style={labelStyle}>
-                  <MapPin size={12} strokeWidth={2} /> City
-                </div>
-                <Select
-                  value={cityMode}
-                  onValueChange={(v) => {
-                    setCityMode(v);
-                    if (v !== CITY_OTHER) {
-                      setCustomCity('');
-                      setFormData((prev) => ({ ...prev, city: v }));
-                    } else {
-                      setFormData((prev) => ({ ...prev, city: customCity }));
-                    }
-                  }}
-                >
-                  <SelectTrigger style={{ ...inputStyle, paddingLeft: 14 }}>
-                    <SelectValue placeholder="Select your city" />
-                  </SelectTrigger>
-                  <SelectContent
-                    style={{
-                      backgroundColor: 'var(--sec-bg-elevated)',
-                      border: '1px solid var(--sec-border)',
-                      borderRadius: 'var(--radius-lg)',
-                    }}
-                  >
-                    {CITIES.map((city) => (
-                      <SelectItem key={city} value={city} style={{ color: 'var(--sec-text-primary)' }}>
-                        {city}
-                      </SelectItem>
-                    ))}
-                    <SelectItem value={CITY_OTHER} style={{ color: 'var(--sec-text-primary)' }}>
-                      Other
-                    </SelectItem>
-                  </SelectContent>
-                </Select>
-                {cityMode === CITY_OTHER ? (
-                  <Input
-                    value={customCity}
-                    onChange={(e) => {
-                      setCustomCity(e.target.value);
-                      setFormData((prev) => ({ ...prev, city: e.target.value }));
-                    }}
-                    placeholder="Enter your city"
-                    style={{ ...inputStyle, marginTop: 10 }}
-                  />
-                ) : null}
-              </div>
+              <CountryCityPicker
+                required
+                value={{
+                  countryCode: formData.country_code,
+                  city: formData.city,
+                  region: formData.region,
+                  latitude: formData.latitude,
+                  longitude: formData.longitude,
+                }}
+                onChange={(next) => {
+                  setFormData((prev) => ({
+                    ...prev,
+                    country_code: next.countryCode || '',
+                    city: next.city || '',
+                    region: next.region || '',
+                    ...(next.latitude != null && next.longitude != null && prev.latitude == null
+                      ? { latitude: next.latitude, longitude: next.longitude }
+                      : {}),
+                  }));
+                }}
+              />
 
               <div>
                 <div style={labelStyle}>
@@ -876,6 +829,7 @@ export default function ProfileSetup() {
                   label="Or enter a place"
                   placeholder="Suburb, street, or landmark"
                   showSuburbProvince
+                  countryCode={formData.country_code}
                   value={
                     formData.location_label || formData.suburb || formData.province
                       ? {

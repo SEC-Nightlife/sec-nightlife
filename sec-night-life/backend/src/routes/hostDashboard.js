@@ -3,6 +3,7 @@
  * All authenticated users with role USER (and staff where noted) may host.
  */
 import { Router } from 'express';
+import { DEFAULT_COUNTRY_CODE, normalizeCountryCode, zoneOfHostedTable } from '../lib/timezone.js';
 import crypto from 'crypto';
 import rateLimit from 'express-rate-limit';
 import { z } from 'zod';
@@ -1281,6 +1282,10 @@ const createTableSchema = z.object({
   eventId: z.string().optional().nullable(),
   venueName: z.string().trim().min(1).optional(),
   venueAddress: z.string().optional().nullable(),
+  city: z.string().trim().max(120).optional().nullable(),
+  countryCode: z.string().trim().regex(/^[A-Za-z]{2}$/).optional().nullable(),
+  latitude: z.number().min(-90).max(90).optional().nullable(),
+  longitude: z.number().min(-180).max(180).optional().nullable(),
   eventDate: z.coerce.date(),
   eventTime: z.string().min(1),
   eventEndDate: z.coerce.date().optional().nullable(),
@@ -1337,10 +1342,22 @@ router.post('/tables', authenticateToken, requireVerified, async (req, res, next
       eventTime: d.eventTime,
       eventEndDate: d.eventEndDate,
       eventEndTime: d.eventEndTime,
+      tz: zoneOfHostedTable({
+        latitude: d.latitude ?? null,
+        longitude: d.longitude ?? null,
+        countryCode: d.countryCode ?? null,
+      }),
     });
     if (!schedule.ok) {
       return res.status(400).json({ error: schedule.error });
     }
+    const hostProfile = await prisma.userProfile.findUnique({
+      where: { userId: req.userId },
+      select: { city: true, countryCode: true },
+    });
+    const listingCountryCode =
+      normalizeCountryCode(d.countryCode) || normalizeCountryCode(hostProfile?.countryCode) || DEFAULT_COUNTRY_CODE;
+    const listingCity = d.city?.trim() || hostProfile?.city || null;
     const t = await prisma.$transaction(async (tx) =>
       tx.hostedTable.create({
         data: {
@@ -1352,6 +1369,10 @@ router.post('/tables', authenticateToken, requireVerified, async (req, res, next
           eventId: null,
           venueName: d.venueName,
           venueAddress: d.venueAddress.trim(),
+          city: listingCity,
+          countryCode: listingCountryCode,
+          latitude: d.latitude ?? null,
+          longitude: d.longitude ?? null,
           eventDate: schedule.eventDate,
           eventTime: schedule.eventTime,
           eventEndDate: schedule.eventEndDate,
@@ -1993,6 +2014,7 @@ router.patch('/tables/:tableId', authenticateToken, async (req, res, next) => {
         eventTime: d.eventTime ?? t.eventTime,
         eventEndDate: d.eventEndDate ?? t.eventEndDate ?? d.eventDate ?? t.eventDate,
         eventEndTime: d.eventEndTime ?? t.eventEndTime ?? '23:59',
+        tz: zoneOfHostedTable(t),
       });
       if (!schedule.ok) return res.status(400).json({ error: schedule.error });
       d.eventDate = schedule.eventDate;

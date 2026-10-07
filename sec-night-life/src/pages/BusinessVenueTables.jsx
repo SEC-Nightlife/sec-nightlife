@@ -682,7 +682,7 @@ export default function BusinessVenueTables() {
                 const sample = group.sample;
                 const scheduleLabel = formatServiceScheduleSummary(sample?.serviceSchedule)
                   || (sample?.serviceDate
-                    ? `${new Date(sample.serviceDate).toLocaleDateString('en-ZA', { day: 'numeric', month: 'short', year: 'numeric' })}${sample.startTime ? ` · ${sample.startTime}` : ''}${sample.endTime ? `–${sample.endTime}` : ''}`
+                    ? `${new Date(sample.serviceDate).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' })}${sample.startTime ? ` · ${sample.startTime}` : ''}${sample.endTime ? `–${sample.endTime}` : ''}`
                     : null);
                 const expanded = expandedTierKey === group.key;
                 const tierStatusColor = group.inUseCount > 0

@@ -1,3 +1,5 @@
+import { DEFAULT_TIMEZONE, zoneFrom, zonedParts, zonedWallTimeToUtc } from './timezone.js';
+
 export const WEEKDAY_KEYS = [
   'monday',
   'tuesday',
@@ -28,16 +30,12 @@ export const WEEKDAY_FULL = {
   sunday: 'Sunday',
 };
 
-const SAST_TZ = 'Africa/Johannesburg';
-
-export function weekdayKeyFromDate(date = new Date()) {
+/** Weekday key of `date` in the venue's time zone (default SAST). */
+export function weekdayKeyFromDate(date = new Date(), tz = DEFAULT_TIMEZONE) {
   const d = date instanceof Date ? date : new Date(date);
-  const label = new Intl.DateTimeFormat('en-US', {
-    timeZone: SAST_TZ,
-    weekday: 'long',
-  }).format(d);
-  const key = String(label || '').toLowerCase();
-  return WEEKDAY_KEYS.includes(key) ? key : 'monday';
+  if (Number.isNaN(d.getTime())) return 'monday';
+  const js = zonedParts(d, tz).weekday;
+  return WEEKDAY_KEYS[(js + 6) % 7];
 }
 
 function parseClock(value) {
@@ -82,8 +80,8 @@ export function isVenueTableOpenOnWeekday(table, weekdayKey) {
   return schedule.some((e) => e.day === weekdayKey);
 }
 
-export function isVenueTableBookableToday(table, refDate = new Date()) {
-  return isVenueTableOpenOnWeekday(table, weekdayKeyFromDate(refDate));
+export function isVenueTableBookableToday(table, refDate = new Date(), tz = zoneFrom(table)) {
+  return isVenueTableOpenOnWeekday(table, weekdayKeyFromDate(refDate, tz));
 }
 
 export function scheduleEntryForWeekday(table, weekdayKey) {
@@ -91,60 +89,50 @@ export function scheduleEntryForWeekday(table, weekdayKey) {
   return schedule.find((e) => e.day === weekdayKey) || null;
 }
 
-function applyClockToDate(baseDate, clock, { endOfDayFallback = false } = {}) {
-  const d = new Date(baseDate.getTime());
-  const parsed = parseClock(clock);
-  if (!parsed) {
-    if (endOfDayFallback) d.setUTCHours(23, 59, 59, 999);
-    return d;
-  }
-  d.setUTCHours(parsed.h, parsed.m, 0, 0);
-  return d;
+/** Wall-clock HH:mm on the venue-local calendar day (y, m, d) plus `addDays`. */
+function zonedClockOnDay(year, month, day, addDays, clock, tz) {
+  const cal = new Date(Date.UTC(year, month - 1, day + addDays));
+  return zonedWallTimeToUtc(cal.getUTCFullYear(), cal.getUTCMonth() + 1, cal.getUTCDate(), clock.h, clock.m, tz);
 }
 
-/** Start instant for a weekday entry on the calendar week containing refDate. */
-export function dayStartsAtForScheduleEntry(entry, refDate = new Date()) {
+/** Start instant (venue wall time) for a weekday entry on the week containing refDate. */
+export function dayStartsAtForScheduleEntry(entry, refDate = new Date(), tz = DEFAULT_TIMEZONE) {
   if (!entry) return null;
   const targetIdx = WEEKDAY_KEYS.indexOf(entry.day);
   if (targetIdx < 0) return null;
   const jsTarget = (targetIdx + 1) % 7;
-  const d = new Date(refDate.getTime());
-  const currentJs = d.getDay();
-  let diff = jsTarget - currentJs;
+  const p = zonedParts(refDate, tz);
+  let diff = jsTarget - p.weekday;
   if (diff < 0) diff += 7;
-  if (diff === 0) {
-    const start = applyClockToDate(d, entry.startTime);
-    return start;
-  }
-  d.setDate(d.getDate() + diff);
-  return applyClockToDate(d, entry.startTime);
+  const clock = parseClock(entry.startTime) || { h: 0, m: 0 };
+  return zonedClockOnDay(p.year, p.month, p.day, diff, clock, tz);
 }
 
 /** End instant for a weekday entry (handles end after midnight). */
-export function dayEndsAtForScheduleEntry(entry, refDate = new Date()) {
+export function dayEndsAtForScheduleEntry(entry, refDate = new Date(), tz = DEFAULT_TIMEZONE) {
   if (!entry) return null;
-  const start = dayStartsAtForScheduleEntry(entry, refDate);
+  const start = dayStartsAtForScheduleEntry(entry, refDate, tz);
   if (!start) return null;
-  const end = applyClockToDate(new Date(start.getTime()), entry.endTime, { endOfDayFallback: true });
+  const sp = zonedParts(start, tz);
   const startClock = parseClock(entry.startTime);
   const endClock = parseClock(entry.endTime);
-  if (startClock && endClock) {
-    const startMins = startClock.h * 60 + startClock.m;
-    const endMins = endClock.h * 60 + endClock.m;
-    if (endMins <= startMins) end.setUTCDate(end.getUTCDate() + 1);
+  if (!endClock) {
+    return new Date(zonedClockOnDay(sp.year, sp.month, sp.day, 0, { h: 23, m: 59 }, tz).getTime() + 59_999);
   }
-  return end;
+  const overnight =
+    startClock && endClock.h * 60 + endClock.m <= startClock.h * 60 + startClock.m;
+  return zonedClockOnDay(sp.year, sp.month, sp.day, overnight ? 1 : 0, endClock, tz);
 }
 
-export function dayStartsAtFromVenueTableSchedule(table, refDate = new Date()) {
-  const entry = scheduleEntryForWeekday(table, weekdayKeyFromDate(refDate));
-  if (entry) return dayStartsAtForScheduleEntry(entry, refDate);
+export function dayStartsAtFromVenueTableSchedule(table, refDate = new Date(), tz = zoneFrom(table)) {
+  const entry = scheduleEntryForWeekday(table, weekdayKeyFromDate(refDate, tz));
+  if (entry) return dayStartsAtForScheduleEntry(entry, refDate, tz);
   return null;
 }
 
-export function dayEndsAtFromVenueTableSchedule(table, refDate = new Date()) {
-  const entry = scheduleEntryForWeekday(table, weekdayKeyFromDate(refDate));
-  if (entry) return dayEndsAtForScheduleEntry(entry, refDate);
+export function dayEndsAtFromVenueTableSchedule(table, refDate = new Date(), tz = zoneFrom(table)) {
+  const entry = scheduleEntryForWeekday(table, weekdayKeyFromDate(refDate, tz));
+  if (entry) return dayEndsAtForScheduleEntry(entry, refDate, tz);
   return null;
 }
 

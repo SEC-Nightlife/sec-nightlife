@@ -76,7 +76,7 @@ export const tableDayBookings = {
     },
     {
       type: 'p',
-      text: `Enable accepts day bookings so guests can book a table for a time window on a normal night (not only during a named event). Windows respect venue hours (SAST, overnight-aware). Minimum booking length is ${F.dayBookingMinMinutes} minutes; slot steps are typically 30 minutes. Overlaps are blocked by session occupancy.`,
+      text: `Enable accepts day bookings so guests can book a table for a time window on a normal night (not only during a named event). Windows respect venue hours in the venue's local time zone (overnight-aware). Minimum booking length is ${F.dayBookingMinMinutes} minutes; slot steps are typically 30 minutes. Overlaps are blocked by session occupancy.`,
     },
     {
       type: 'steps',

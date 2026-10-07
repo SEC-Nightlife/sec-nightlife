@@ -22,12 +22,14 @@ import * as authService from '@/services/authService';
 import { toast } from 'sonner';
 import RatePromoterDialog from '@/components/promoter/RatePromoterDialog';
 import LegalDocLink from '@/components/legal/LegalDocLink';
+import { useMoney } from '@/hooks/useMoney';
+import { formatZar } from '@/lib/money';
 
-function compensationText(job) {
+function compensationText(job, fmt = formatZar) {
   if (job.compensationPer === 'COMMISSION') return 'Commission based';
   if (job.compensationType === 'NEGOTIABLE') return 'Negotiable';
   if (job.compensationType === 'UNPAID_TRIAL') return 'Unpaid trial';
-  if (job.compensationAmount) return `R${Number(job.compensationAmount).toFixed(0)} per ${String(job.compensationPer || 'MONTH').toLowerCase()}`;
+  if (job.compensationAmount) return `${fmt(job.compensationAmount)} per ${String(job.compensationPer || 'MONTH').toLowerCase()}`;
   return 'Compensation not specified';
 }
 
@@ -52,6 +54,7 @@ function userCanApplyToJobs(user) {
 }
 
 export default function JobDetails() {
+  const money = useMoney();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const urlParams = new URLSearchParams(window.location.search);
@@ -279,7 +282,7 @@ export default function JobDetails() {
       <div className="sec-card" style={{ padding: 16, borderRadius: 14 }}>
         <h1 style={{ fontSize: 24, fontWeight: 700 }}>{job.title}</h1>
         <p style={{ marginTop: 6, color: 'var(--sec-text-muted)' }}>{job.venue?.name} · {job.venue?.city} · {job.venue?.venueType}</p>
-        <p style={{ marginTop: 8, fontSize: 13 }}><strong>{compensationText(job)}</strong></p>
+        <p style={{ marginTop: 8, fontSize: 13 }}><strong>{compensationText(job, money.format)}</strong></p>
         <p style={{ marginTop: 8, fontSize: 13, color: 'var(--sec-text-muted)' }}>{spotsRemaining} spots left</p>
         {job.closingDate ? <p style={{ marginTop: 8, fontSize: 13, color: 'var(--sec-text-muted)' }}>Closes {new Date(job.closingDate).toLocaleDateString()}</p> : <p style={{ marginTop: 8, fontSize: 13, color: 'var(--sec-text-muted)' }}>No closing date</p>}
         <h3 style={{ marginTop: 14 }}>Description</h3>

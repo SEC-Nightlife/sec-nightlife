@@ -5,6 +5,8 @@ import { authenticateToken, optionalAuth } from '../middleware/auth.js';
 import { sendEmail } from '../lib/email.js';
 import { notifyAdmins } from '../lib/adminNotify.js';
 import { logger } from '../lib/logger.js';
+import { normalizeCountryCode } from '../lib/timezone.js';
+import { resolveFeedScope, scopeWhere } from '../lib/feedScope.js';
 import { signCloudinaryUrl, privateDownloadUrl } from '../lib/cloudinarySignedUrl.js';
 import { welcomePromoterThread, promoterVenueThreadPath } from '../lib/promoterVenueThread.js';
 import {
@@ -96,7 +98,7 @@ async function getApplicationForBusinessUser(applicationId, userId, include = {}
   return ok ? application : null;
 }
 
-function publicJobWhere(query = {}) {
+function publicJobWhere(query = {}, feed = null) {
   const where = {
     status: 'OPEN',
     deletedAt: null,
@@ -104,7 +106,16 @@ function publicJobWhere(query = {}) {
   };
   const venueId = query.venueId || query.venue_id;
   if (venueId) where.venueId = String(venueId);
-  if (query.city) where.venue = { city: query.city, deletedAt: null };
+  const venueWhere = {};
+  if (query.city) venueWhere.city = { equals: String(query.city), mode: 'insensitive' };
+  const countryCode = normalizeCountryCode(query.country_code || query.country);
+  if (countryCode) venueWhere.countryCode = countryCode;
+  if (feed && !venueId) {
+    const scoped = scopeWhere(feed);
+    if (scoped.city && venueWhere.city) delete scoped.city;
+    Object.assign(venueWhere, scoped);
+  }
+  if (Object.keys(venueWhere).length) where.venue = { ...venueWhere, deletedAt: null };
   if (query.jobType) where.jobType = query.jobType;
   if (query.compensationType) where.compensationType = query.compensationType;
   return where;
@@ -383,7 +394,7 @@ router.get('/venue/:venueId', authenticateToken, async (req, res, next) => {
 router.get('/filter', optionalAuth, async (req, res, next) => {
   try {
     const jobs = await prisma.jobPosting.findMany({
-      where: publicJobWhere(req.query),
+      where: publicJobWhere(req.query, await resolveFeedScope(req)),
       orderBy: { createdAt: 'desc' },
       include: { venue: { select: { id: true, name: true, city: true, venueType: true } } },
     });
@@ -415,7 +426,7 @@ router.get('/filter', optionalAuth, async (req, res, next) => {
 router.get('/public', optionalAuth, async (req, res, next) => {
   try {
     const jobs = await prisma.jobPosting.findMany({
-      where: publicJobWhere(req.query),
+      where: publicJobWhere(req.query, await resolveFeedScope(req)),
       orderBy: { createdAt: 'desc' },
       include: { venue: { select: { id: true, name: true, city: true, venueType: true } } },
     });

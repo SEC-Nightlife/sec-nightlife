@@ -6,10 +6,9 @@ import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import SecLogo from '@/components/ui/SecLogo';
 import { cn } from '@/lib/utils';
+import { formatZar as formatRand } from '@/lib/money';
 
-function formatZar(n) {
-  return `R ${Number(n || 0).toFixed(2)}`;
-}
+const formatZar = (n) => formatRand(n, { cents: true });
 
 function StatusBadge({ status }) {
   const map = {

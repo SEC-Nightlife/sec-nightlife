@@ -1,5 +1,6 @@
 import React from 'react';
 import { MOBILE_NAV_BOTTOM_OFFSET } from '@/lib/layoutConstants';
+import { useMoney } from '@/hooks/useMoney';
 
 /**
  * Single sticky footer for venue table menu/checkout steps.
@@ -14,6 +15,7 @@ export default function TableCheckoutFooter({
   continueLabel = 'Review order',
   children,
 }) {
+  const money = useMoney();
   const minSpend = Number(minSpendZar) || 0;
   const hasItems = itemCount > 0;
   const continueDisabled =
@@ -44,15 +46,15 @@ export default function TableCheckoutFooter({
             {itemCount} item{itemCount === 1 ? '' : 's'}
             {minSpend > 0 && hasItems ? (
               <span style={{ marginLeft: 8 }}>
-                · Min R{minSpend.toFixed(0)}
+                · Min {money.format(minSpend)}
                 {minMet ? '' : ` (${(minSpend - cartTotalZar).toFixed(0)} more needed)`}
               </span>
             ) : null}
           </span>
           {hasItems ? (
-            <span style={{ fontWeight: 700, fontSize: 16 }}>R{Number(cartTotalZar).toFixed(0)}</span>
+            <span style={{ fontWeight: 700, fontSize: 16 }}>{money.format(cartTotalZar)}</span>
           ) : minSpend > 0 ? (
-            <span style={{ fontWeight: 700, fontSize: 16 }}>Min R{minSpend.toFixed(0)}</span>
+            <span style={{ fontWeight: 700, fontSize: 16 }}>Min {money.format(minSpend)}</span>
           ) : null}
         </div>
         <div className="table-checkout-footer__actions" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>

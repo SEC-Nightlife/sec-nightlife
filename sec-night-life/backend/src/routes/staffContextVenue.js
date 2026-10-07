@@ -4,6 +4,8 @@ import { authenticateToken } from '../middleware/auth.js';
 import { resolveStaffVenueContext, staffPermissionOk } from '../lib/access.js';
 import { prisma } from '../lib/prisma.js';
 import { ensureDayCustomVenueTable } from '../lib/ensureDayCustomVenueTable.js';
+import { normalizeCountryCode, resolveTimeZone, zoneOf } from '../lib/timezone.js';
+import { syncVenueLocaleToEvents } from '../lib/venueLocale.js';
 
 const router = Router({ mergeParams: true });
 
@@ -14,6 +16,12 @@ const venueCreateSchema = z.object({
   address: z.string().optional().nullable(),
   suburb: z.string().optional().nullable(),
   province: z.string().optional().nullable(),
+  country_code: z
+    .string()
+    .trim()
+    .regex(/^[A-Za-z]{2}$/)
+    .optional()
+    .nullable(),
   latitude: z.number().optional().nullable(),
   longitude: z.number().optional().nullable(),
   bio: z.string().optional().nullable(),
@@ -53,6 +61,8 @@ function mapVenueRow(venue) {
     address: venue.address,
     suburb: venue.suburb,
     province: venue.province,
+    country_code: venue.countryCode ?? null,
+    timezone: zoneOf(venue),
     latitude: venue.latitude,
     longitude: venue.longitude,
     bio: venue.bio,
@@ -118,6 +128,17 @@ router.patch('/', authenticateToken, requireStaffVenuePage, async (req, res, nex
     if (data.province != null) updates.province = data.province;
     if (data.latitude != null) updates.latitude = data.latitude;
     if (data.longitude != null) updates.longitude = data.longitude;
+    if (data.country_code != null) {
+      const cc = normalizeCountryCode(data.country_code);
+      if (cc) updates.countryCode = cc;
+    }
+    if (data.latitude != null || data.longitude != null || updates.countryCode) {
+      updates.timezone = resolveTimeZone({
+        latitude: updates.latitude ?? venue.latitude,
+        longitude: updates.longitude ?? venue.longitude,
+        countryCode: updates.countryCode ?? venue.countryCode,
+      });
+    }
     if (data.bio != null) updates.bio = data.bio;
     if (data.phone != null) updates.phone = data.phone;
     if (data.email != null) updates.email = data.email;
@@ -144,6 +165,9 @@ router.patch('/', authenticateToken, requireStaffVenuePage, async (req, res, nex
       where: { id: venue.id },
       data: updates,
     });
+    if (updates.timezone || updates.countryCode) {
+      await syncVenueLocaleToEvents(updated);
+    }
 
     if (extraData.accepts_day_bookings === true) {
       await ensureDayCustomVenueTable(venue.id);

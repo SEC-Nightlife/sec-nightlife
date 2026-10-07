@@ -4,6 +4,7 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { integrations } from '@/services/integrationService';
 import { VENDOR_CATEGORIES, VENDOR_PRICE_UNITS } from '@/lib/vendorCategories';
+import CountryCityPicker from '@/components/location/CountryCityPicker';
 
 const labelStyle = {
   fontSize: 11,
@@ -178,16 +179,15 @@ export default function VendorListingForm({ value, onChange, cityHint, showExten
 
           <div>
             <div style={labelStyle}>Location</div>
-            <Input
-              value={value.city || ''}
-              onChange={(e) => setField({ city: e.target.value })}
-              placeholder="City"
-              style={inputStyle}
+            <CountryCityPicker
+              value={{ countryCode: value.country, city: value.city }}
+              cityPlaceholder="City you're based in"
+              onChange={(next) => setField({ country: next.countryCode || '', city: next.city || '' })}
             />
             <Input
               value={value.service_area || ''}
               onChange={(e) => setField({ service_area: e.target.value })}
-              placeholder="Areas you serve, e.g. Cape Town & Winelands"
+              placeholder="Areas you serve, e.g. the whole metro or nationwide"
               style={{ ...inputStyle, marginTop: 8 }}
               maxLength={200}
             />

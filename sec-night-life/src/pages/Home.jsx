@@ -25,8 +25,10 @@ import { toast } from 'sonner';
 import { launchPaystackInline } from '@/lib/paystackInline';
 import { completePaystackCheckout } from '@/lib/completePaystackCheckout';
 import { isEventEnded } from '@/lib/eventLifecycle';
-import { usePreferences } from '@/context/PreferencesContext';
 import { useNotificationUnreadCount } from '@/lib/useNotificationUnreadCount';
+import { useFeedScopeParams } from '@/hooks/useFeedScope';
+import FeedScopeToggle from '@/components/location/FeedScopeToggle';
+import { countryName } from '@/lib/countries';
 
 const ENTER_SEEN_KEY = 'sec_enter_seen_v1';
 
@@ -265,12 +267,13 @@ export default function Home() {
   const queryClient = useQueryClient();
   const { user, userProfile, logout, checkAppState, isLoadingAuth } = useAuth();
   const notificationUnread = useNotificationUnreadCount(!!user?.id);
-  const { location: locPrefs, geoCoords } = usePreferences();
+  const feedScopeState = useFeedScopeParams();
   const [searchQuery, setSearchQuery] = useState('');
   const [showFilters, setShowFilters] = useState(false);
   const [venueSectionInView, setVenueSectionInView] = useState(false);
   const venuesSectionRef = useRef(null);
   const [selectedCity, setSelectedCity] = useState('all');
+  const [selectedCityCountry, setSelectedCityCountry] = useState(null);
   const [selectedVenueType, setSelectedVenueType] = useState('all');
   const [sessionId] = useState(() => getOrCreateSessionId());
   const pullCooldownRef = useRef(0);
@@ -378,17 +381,20 @@ export default function Home() {
     };
   }, [refreshHomeData]);
 
-  /** Feed scope: location off → nationwide; location on → geo radius; else city fallback. */
-  const homeFeedCity = useMemo(() => {
-    if (locPrefs?.useLocation) return '';
-    if (selectedCity && selectedCity !== 'all') return String(selectedCity).trim();
-    if (userProfile?.city) return String(userProfile.city).trim();
-    return '';
-  }, [selectedCity, userProfile?.city, locPrefs?.useLocation]);
-  const homeFeedScopeAll = !locPrefs?.useLocation && !homeFeedCity;
-  const homeFeedGeoKey = locPrefs?.useLocation && geoCoords
-    ? `${geoCoords.lat.toFixed(3)},${geoCoords.lng.toFixed(3)},${locPrefs.radiusKm ?? 25}`
-    : null;
+  /** Feed scope comes from App Preferences (near me / country / worldwide); picking a city narrows to it. */
+  const homeScopeParams = useMemo(() => {
+    if (selectedCity && selectedCity !== 'all') {
+      const p = { feed_scope: 'local', city: String(selectedCity).trim() };
+      const cc = selectedCityCountry || feedScopeState.countryCode;
+      if (cc) p.country_code = cc;
+      return p;
+    }
+    return feedScopeState.params;
+  }, [selectedCity, selectedCityCountry, feedScopeState]);
+  const feedScopeKey = useMemo(
+    () => Object.entries(homeScopeParams).map(([k, v]) => `${k}=${v}`).join('&'),
+    [homeScopeParams],
+  );
 
   const handlePromotionClick = async (promotion) => {
     void apiPost(`/api/promotions/${promotion.id}/track`, { type: 'CLICK', sessionId }).catch(() => {});
@@ -454,7 +460,6 @@ export default function Home() {
 
   const listStale = 120_000;
 
-  const feedScopeKey = homeFeedScopeAll ? 'all' : homeFeedGeoKey || homeFeedCity || 'all';
   const {
     data: feedPages,
     fetchNextPage,
@@ -471,17 +476,11 @@ export default function Home() {
         if (boot?.feed?.items) return boot.feed;
       }
       const params = new URLSearchParams({
+        ...homeScopeParams,
         cursor: String(cursor),
         limit: '12',
         sessionId,
       });
-      if (homeFeedScopeAll) params.set('scope', 'all');
-      else if (homeFeedGeoKey && geoCoords) {
-        params.set('lat', String(geoCoords.lat));
-        params.set('lng', String(geoCoords.lng));
-        params.set('radius_km', String(locPrefs?.radiusKm ?? 25));
-      } else if (homeFeedCity) params.set('city', homeFeedCity);
-      else params.set('scope', 'all');
       return apiGet(`/api/home/feed?${params.toString()}`, { headers: { 'x-session-id': sessionId } });
     },
     getNextPageParam: (lastPage) => (lastPage?.nextCursor != null ? parseInt(lastPage.nextCursor, 10) : undefined),
@@ -493,17 +492,12 @@ export default function Home() {
 
   const fetchHomeBootstrap = useCallback(async () => {
     const params = new URLSearchParams({
+      ...homeScopeParams,
       sessionId,
       tableLimit: '24',
       promoLimit: '12',
     });
-    if (homeFeedScopeAll) params.set('scope', 'all');
-    else if (homeFeedGeoKey && geoCoords) {
-      params.set('lat', String(geoCoords.lat));
-      params.set('lng', String(geoCoords.lng));
-      params.set('radius_km', String(locPrefs?.radiusKm ?? 25));
-    } else if (homeFeedCity) params.set('city', homeFeedCity);
-    else params.set('scope', 'all');
+    const scopeQs = new URLSearchParams(homeScopeParams).toString();
 
     try {
       return await apiGet(`/api/home/bootstrap?${params.toString()}`, {
@@ -512,7 +506,7 @@ export default function Home() {
     } catch (err) {
       const [announcementsRes, tableRes, promoRes, followedRes, communityRes] = await Promise.allSettled([
         apiGet('/api/home/announcements'),
-        apiGet(`/api/home/table-offerings?limit=24&sessionId=${encodeURIComponent(sessionId)}`, {
+        apiGet(`/api/home/table-offerings?limit=24&sessionId=${encodeURIComponent(sessionId)}&${scopeQs}`, {
           headers: { 'x-session-id': sessionId },
         }),
         apiGet(`/api/promotions/feed?limit=12&page=1&${params.toString()}`, {
@@ -520,7 +514,7 @@ export default function Home() {
           skipAuth: true,
         }),
         apiGet('/api/home/followed-promoters'),
-        apiGet('/api/home/community-hosted-events?limit=12'),
+        apiGet(`/api/home/community-hosted-events?limit=12&${scopeQs}`),
       ]);
       return {
         announcements:
@@ -541,7 +535,7 @@ export default function Home() {
           communityRes.status === 'fulfilled' ? communityRes.value?.items || [] : [],
       };
     }
-  }, [sessionId, homeFeedScopeAll, homeFeedGeoKey, geoCoords, homeFeedCity, locPrefs?.radiusKm]);
+  }, [sessionId, homeScopeParams]);
 
   const { data: homeBootstrap, isLoading: bootstrapLoading } = useQuery({
     queryKey: ['home-bootstrap', sessionId, bootstrapScopeKey],
@@ -567,13 +561,23 @@ export default function Home() {
   const promotionsFeedLoading = bootstrapLoading;
 
   const feedRows = useMemo(() => (feedPages?.pages || []).flatMap((p) => p.items || []), [feedPages]);
-  const feedScope = feedPages?.pages?.[0]?.feedScope;
+  const firstFeedPage = feedPages?.pages?.[0];
+  const effectiveFeedScope = firstFeedPage?.feedScope;
+  const feedCountryLabel =
+    countryName(firstFeedPage?.countryCode || feedScopeState.countryCode) || 'your country';
   const feedScopeHint =
-    feedScope === 'local'
+    effectiveFeedScope === 'local'
       ? 'Venues and events near you — order changes each session.'
-      : locPrefs?.useLocation
-        ? 'Showing venues and events across SEC — few venues near you. Order changes each session.'
-        : 'Order changes based on your area and session.';
+      : effectiveFeedScope === 'national'
+        ? `Venues and events across ${feedCountryLabel} — order changes each session.`
+        : effectiveFeedScope === 'worldwide'
+          ? 'Venues and events worldwide — order changes each session.'
+          : 'Order changes based on your area and session.';
+  const feedWidenedMessage = firstFeedPage?.widened
+    ? effectiveFeedScope === 'national'
+      ? `Nothing near you yet — showing all of ${feedCountryLabel}.`
+      : `Nothing in ${firstFeedPage?.requestedScope === 'national' ? feedCountryLabel : 'your area'} yet — showing events worldwide.`
+    : null;
 
   // Upcoming/featured come from bootstrap + feed (no extra Event.filter / featured-details).
   const events = useMemo(() => {
@@ -599,9 +603,9 @@ export default function Home() {
 
   // Retry Available Tables if bootstrap returned empty (partial failure / race).
   const { data: fallbackTableOfferings, isLoading: fallbackTablesLoading } = useQuery({
-    queryKey: ['home-table-offerings', sessionId],
+    queryKey: ['home-table-offerings', sessionId, feedScopeKey],
     queryFn: () =>
-      apiGet(`/api/home/table-offerings?limit=24&sessionId=${encodeURIComponent(sessionId)}`, {
+      apiGet(`/api/home/table-offerings?limit=24&sessionId=${encodeURIComponent(sessionId)}&${new URLSearchParams(homeScopeParams).toString()}`, {
         headers: { 'x-session-id': sessionId },
       }),
     enabled: guestBrowseReady && !bootstrapLoading && bootstrapTableItems.length === 0,
@@ -642,10 +646,15 @@ export default function Home() {
   const shouldLoadVenues = showFilters || selectedCity !== 'all' || venueSectionInView;
 
   const { data: venues = [] } = useQuery({
-    queryKey: ['all-venues', selectedCity],
+    queryKey: ['all-venues', selectedCity, selectedCity === 'all' ? feedScopeState.key : selectedCityCountry],
     queryFn: () => {
       const params = new URLSearchParams({ limit: '72' });
-      if (selectedCity && selectedCity !== 'all') params.set('city', selectedCity);
+      if (selectedCity && selectedCity !== 'all') {
+        params.set('city', selectedCity);
+        if (selectedCityCountry) params.set('country_code', selectedCityCountry);
+      } else {
+        for (const [k, v] of Object.entries(feedScopeState.params)) params.set(k, v);
+      }
       return apiGet(`/api/venues?${params.toString()}`);
     },
     staleTime: listStale,
@@ -914,6 +923,27 @@ export default function Home() {
       </header>
 
       <div style={{ maxWidth: 1120, margin: '0 auto', padding: '24px 20px 0' }}>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: feedWidenedMessage ? 10 : 18 }}>
+          <span style={{ fontSize: 12, color: 'var(--sec-text-muted)' }}>Showing</span>
+          <FeedScopeToggle />
+        </div>
+        {feedWidenedMessage ? (
+          <div
+            role="status"
+            style={{
+              marginBottom: 18,
+              padding: '10px 14px',
+              borderRadius: 12,
+              fontSize: 13,
+              color: 'var(--sec-text-secondary)',
+              background: 'var(--sec-bg-card)',
+              border: '1px solid var(--sec-border)',
+            }}
+          >
+            {feedWidenedMessage}
+          </div>
+        ) : null}
 
         {user ? <StaffAccessBanner assignments={staffAssignments} /> : null}
         {user && (user?.can_admin_dashboard || ['ADMIN', 'SUPER_ADMIN'].includes(user?.role)) ? (
@@ -1335,7 +1365,14 @@ export default function Home() {
               >
                 <div>
                   <label className="sec-label" style={{ marginBottom: 6 }}>City</label>
-                  <select value={selectedCity} onChange={(e) => setSelectedCity(e.target.value)}
+                  <select
+                    value={selectedCity}
+                    onChange={(e) => {
+                      const next = e.target.value;
+                      const match = venues.find((v) => v.city === next);
+                      setSelectedCityCountry(match?.country_code || null);
+                      setSelectedCity(next);
+                    }}
                     className="sec-input-rect" style={{ height: 40, paddingTop: 0, paddingBottom: 0 }}>
                     <option value="all">All Cities</option>
                     {cities.map(c => <option key={c} value={c}>{c}</option>)}

@@ -10,44 +10,10 @@ import { Calendar, Search, MapPin, Clock, Users, SlidersHorizontal, Sparkles, Ti
 import { format, parseISO, isToday, isTomorrow, addDays, startOfWeek, eachDayOfInterval } from 'date-fns';
 import { motion } from 'framer-motion';
 import { getEventImage } from '@/lib/placeholders';
-
-/** Major SA cities + regional hubs — merged with cities from events/venues for the filter dropdown. */
-const CURATED_SA_CITIES = [
-  'Ballito',
-  'Bloemfontein',
-  'Cape Town',
-  'Durban',
-  'East London',
-  'George',
-  'Gqeberha',
-  'Johannesburg',
-  'Kimberley',
-  'Knysna',
-  'Mbombela',
-  'Polokwane',
-  'Pietermaritzburg',
-  'Pretoria',
-  'Rustenburg',
-  'Somerset West',
-  'Stellenbosch',
-  'Umhlanga',
-  'Wild Coast',
-].sort((a, b) => a.localeCompare(b));
-
-function mergeCityOptions(dynamicLabels) {
-  const byKey = new Map();
-  for (const c of CURATED_SA_CITIES) {
-    byKey.set(c.toLowerCase(), c);
-  }
-  for (const raw of dynamicLabels) {
-    if (!raw || typeof raw !== 'string') continue;
-    const t = raw.trim();
-    if (!t) continue;
-    const k = t.toLowerCase();
-    if (!byKey.has(k)) byKey.set(k, t);
-  }
-  return [...byKey.values()].sort((a, b) => a.localeCompare(b));
-}
+import { useContentCities, mergeCityLabels } from '@/hooks/useContentCities';
+import { useFeedScopeParams } from '@/hooks/useFeedScope';
+import FeedScopeToggle from '@/components/location/FeedScopeToggle';
+import { useMoney } from '@/hooks/useMoney';
 
 /** Lowest paid option: ticket tiers and/or door entrance (matches EventCard pricing). */
 function getEffectiveMinPrice(event) {
@@ -83,15 +49,23 @@ export default function Events() {
   const [showFilters, setShowFilters] = useState(false);
   const [filters, setFilters] = useState({ venueType: 'all', priceRange: 'all', city: 'all' });
 
+  const feedScope = useFeedScopeParams();
+  /** A picked city overrides the scope setting so cities in any country can be browsed. */
+  const scopeParams = useMemo(
+    () => (filters.city !== 'all' ? { feed_scope: 'worldwide', city: filters.city } : feedScope.params),
+    [filters.city, feedScope.params],
+  );
+  const scopeKey = new URLSearchParams(scopeParams).toString();
+
   const { data: events = [], isLoading } = useQuery({
-    queryKey: ['events'],
-    queryFn: () => dataService.Event.filter({ status: 'published' }, 'date', 100),
+    queryKey: ['events', scopeKey],
+    queryFn: () => dataService.Event.filter({ status: 'published', ...scopeParams }, 'date', 100),
   });
 
   const { data: communityHostedRaw = [] } = useQuery({
-    queryKey: ['community-hosted-events'],
+    queryKey: ['community-hosted-events', scopeKey],
     queryFn: async () => {
-      const res = await apiGet('/api/home/community-hosted-events?limit=24');
+      const res = await apiGet(`/api/home/community-hosted-events?limit=24&${scopeKey}`);
       return res?.items || [];
     },
     staleTime: 60_000,
@@ -140,6 +114,11 @@ export default function Events() {
         return null;
       }
     },
+  });
+
+  const { cities: contentCities } = useContentCities({
+    source: 'events',
+    countryCode: userProfile?.country_code || null,
   });
 
   const interestedIds = (userProfile?.interested_events || []).slice(0, 50);
@@ -200,7 +179,8 @@ export default function Events() {
         ? filters.venueType === 'all'
         : filters.venueType === 'all' || venue?.venue_type === filters.venueType;
     const eventCity = event.city || venue?.city || '';
-    const matchesCity = filters.city === 'all' || eventCity === filters.city;
+    const matchesCity =
+      filters.city === 'all' || eventCity.toLowerCase() === String(filters.city).toLowerCase();
     const matchesPrice = matchesPriceRange(event, filters.priceRange);
     return matchesSearch && matchesVenueType && matchesCity && matchesPrice;
   });
@@ -224,10 +204,11 @@ export default function Events() {
     return ad - bd;
   }).slice(0, 4);
 
-  const cities = mergeCityOptions([
-    ...allEvents.map((e) => e.city),
-    ...venues.map((v) => v.city),
-  ]);
+  const cities = mergeCityLabels(
+    contentCities,
+    allEvents.map((e) => e.city),
+    venues.map((v) => v.city),
+  );
   const todayEvents = filteredEvents.filter(e => e.date && isToday(parseISO(e.date)));
   const tomorrowEvents = filteredEvents.filter(e => e.date && isTomorrow(parseISO(e.date)));
   const upcomingEvents = filteredEvents.filter(e => {
@@ -254,9 +235,12 @@ export default function Events() {
         borderBottom: '1px solid var(--sec-border)',
       }}>
         <div style={{ padding: '16px 20px 12px' }}>
-          <h1 style={{ fontSize: 24, fontWeight: 700, marginBottom: 14, color: 'var(--sec-text-primary)', letterSpacing: '-0.02em' }}>
-            Events
-          </h1>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 14 }}>
+            <h1 style={{ fontSize: 24, fontWeight: 700, margin: 0, color: 'var(--sec-text-primary)', letterSpacing: '-0.02em' }}>
+              Events
+            </h1>
+            <FeedScopeToggle compact />
+          </div>
 
           {/* Search + filter toggle */}
           <div style={{ display: 'flex', gap: 8, marginBottom: showFilters ? 12 : 0 }}>
@@ -473,6 +457,7 @@ function EventSection({ title, events, accent }) {
 
 /* ── Individual event grid card ── */
 function EventCard({ event }) {
+  const money = useMoney();
   const getDateLabel = () => {
     if (!event.date) return '';
     const date = parseISO(event.date);
@@ -559,19 +544,19 @@ function EventCard({ event }) {
           {lowestTicketPrice > 0 && doorEntrance != null ? (
             <span style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 13, fontWeight: 600, color: 'var(--sec-text-primary)', flexWrap: 'wrap' }}>
               <Ticket size={13} strokeWidth={1.5} />
-              From R{lowestTicketPrice}
+              From {money.format(lowestTicketPrice)}
               <span style={{ color: 'var(--sec-text-muted)', fontWeight: 500 }}>·</span>
-              Entrance R{doorEntrance}
+              Entrance {money.format(doorEntrance)}
             </span>
           ) : lowestTicketPrice > 0 ? (
             <span style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 13, fontWeight: 600, color: 'var(--sec-text-primary)' }}>
               <Ticket size={13} strokeWidth={1.5} />
-              From R{lowestTicketPrice}
+              From {money.format(lowestTicketPrice)}
             </span>
           ) : doorEntrance != null ? (
             <span style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 13, fontWeight: 600, color: 'var(--sec-text-primary)' }}>
               <Ticket size={13} strokeWidth={1.5} />
-              Entrance R{doorEntrance}
+              Entrance {money.format(doorEntrance)}
             </span>
           ) : (
             <span style={{ fontSize: 13, color: 'var(--sec-text-muted)' }}>Free Entry</span>

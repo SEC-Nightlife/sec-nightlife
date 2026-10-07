@@ -4,11 +4,9 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 import { downloadAndOpenPurchaseLogPdf } from '@/lib/eventPurchaseLogPdf';
+import { formatZar as formatRand } from '@/lib/money';
 
-function formatZar(n) {
-  const x = Math.round((Number(n) || 0) * 100) / 100;
-  return `R${x.toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-}
+const formatZar = (n) => formatRand(Math.round((Number(n) || 0) * 100) / 100, { cents: true });
 
 function downloadBase64Xlsx(filename, base64) {
   const binary = atob(base64);

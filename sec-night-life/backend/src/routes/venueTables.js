@@ -33,6 +33,7 @@ import {
   buildAvailableGaps,
   buildOccupancyForSlot,
   canHostInWindow,
+  formatHHmmSast,
   getActiveDaySessions,
   isDayVenueTable,
   isOvernightWindow,
@@ -43,6 +44,7 @@ import {
 } from '../lib/dayBookingWindows.js';
 import { WEEKDAY_FULL, weekdayKeyFromDate } from '../lib/serviceSchedule.js';
 import { recordVenueHostParticipation } from '../lib/tableHistory.js';
+import { zoneFrom } from '../lib/timezone.js';
 import {
   isVenueMembershipForToday,
   clearStaleDayBookingMember,
@@ -589,7 +591,7 @@ async function buildVenueCheckoutForTable(table, venue, menuItems, payload, exis
   let windowCtx = null;
 
   if (isDay) {
-    const w = validateDayBookingWindow(table, payload, existing);
+    const w = validateDayBookingWindow(table.venue ? table : { ...table, venue }, payload, existing);
     if (!w.ok) return { error: w.error };
     windowCtx = w;
     if (bookingMode === 'host' || bookingMode === 'custom_host') {
@@ -601,14 +603,7 @@ async function buildVenueCheckoutForTable(table, venue, menuItems, payload, exis
       const vw = venueWindowForDate(table, w.bookingDate);
       const overlapping = sessions.filter((ht) => {
         const startTime = ht.eventTime ? String(ht.eventTime) : null;
-        const endTime = ht.windowEndsAt
-          ? new Intl.DateTimeFormat('en-ZA', {
-              timeZone: 'Africa/Johannesburg',
-              hour: '2-digit',
-              minute: '2-digit',
-              hour12: false,
-            }).format(ht.windowEndsAt)
-          : null;
+        const endTime = ht.windowEndsAt ? formatHHmmSast(ht.windowEndsAt, zoneFrom(table, venue)) : null;
         return startTime && endTime && windowsOverlap(w.windowStart, w.windowEnd, startTime, endTime, vw);
       });
       if (overlapping.length > 0) {
@@ -739,7 +734,7 @@ router.get('/:tableId', optionalAuth, async (req, res, next) => {
     const table = await prisma.venueTable.findUnique({
       where: { id: req.params.tableId },
       include: {
-        venue: { select: { id: true, name: true, city: true, venueType: true, coverImageUrl: true, logoUrl: true, maxBookingDurationHours: true } },
+        venue: { select: { id: true, name: true, city: true, venueType: true, coverImageUrl: true, logoUrl: true, maxBookingDurationHours: true, timezone: true } },
         event: { select: { id: true, title: true, date: true, hasEntranceFee: true, entranceFeeAmount: true } },
         menuItems: true,
         members: {
@@ -756,7 +751,7 @@ router.get('/:tableId', optionalAuth, async (req, res, next) => {
     let dayBookingMeta = {};
     if (isDayBooking && venueWindow) {
       const occupancy = await buildOccupancyForSlot(table, bookingDate);
-      const dayKey = weekdayKeyFromDate(bookingDate);
+      const dayKey = weekdayKeyFromDate(bookingDate, zoneFrom(table));
       dayBookingMeta = {
         serviceDay: { key: dayKey, label: WEEKDAY_FULL[dayKey] || dayKey },
         latestBookableEnd: latestBookableEndTime(venueWindow),
@@ -768,7 +763,7 @@ router.get('/:tableId', optionalAuth, async (req, res, next) => {
           spotsRemaining: o.spotsRemaining,
           hostName: o.hostedTable?.host?.username || o.hostedTable?.host?.fullName || null,
         })),
-        availableGaps: buildAvailableGaps(venueWindow, occupancy, { now: bookingDate }),
+        availableGaps: buildAvailableGaps(venueWindow, occupancy, { now: bookingDate, tz: zoneFrom(table) }),
       };
     }
     let myMembership = await loadMyMembershipForTable(table.id, req.userId, { isDayBooking });

@@ -1,10 +1,11 @@
 import { prisma } from './prisma.js';
 import { normalizeHostingConfig } from './hostingConfig.js';
+import { eventScopeWhere } from './feedScope.js';
 
 /**
  * Lightweight featured carousel payload (no per-event buildEventTableTiers).
  */
-export async function fetchFeaturedEventDetails({ ids = null, limit = 5 } = {}) {
+export async function fetchFeaturedEventDetails({ ids = null, limit = 5, feed = null } = {}) {
   let resolvedIds = Array.isArray(ids) ? ids.filter(Boolean).slice(0, 12) : [];
   const now = new Date();
 
@@ -15,6 +16,7 @@ export async function fetchFeaturedEventDetails({ ids = null, limit = 5 } = {}) 
         status: 'published',
         endsAt: { gte: now },
         OR: [{ isFeatured: true }, { boosted: true }],
+        ...eventScopeWhere(feed),
       },
       orderBy: [{ boosted: 'desc' }, { date: 'asc' }],
       take: Math.min(Math.max(limit, 1), 12),

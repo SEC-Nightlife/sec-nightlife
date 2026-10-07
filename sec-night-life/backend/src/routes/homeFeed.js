@@ -1,4 +1,6 @@
 import { Router } from 'express';
+import { resolveFeedScope, feedScopeCacheKey } from '../lib/feedScope.js';
+import { parseGeoQuery } from '../lib/geo.js';
 import { prisma } from '../lib/prisma.js';
 import { authenticateToken, optionalAuth } from '../middleware/auth.js';
 import { buildTableOfferings, buildCommunityHostedEvents } from '../lib/tableOfferings.js';
@@ -24,7 +26,8 @@ router.get('/table-offerings', optionalAuth, async (req, res, next) => {
     const sessionSeed =
       req.headers['x-session-id'] || req.query.sessionId || req.query.session_id || 'anon-session';
     const dayKey = new Date().toISOString().slice(0, 10);
-    const cacheKey = `home:table-offerings:v3:${req.userId || 'anon'}:${limit}:${String(sessionSeed).slice(0, 24)}:${dayKey}`;
+    const feed = await resolveFeedScope(req);
+    const cacheKey = `home:table-offerings:v4:${req.userId || 'anon'}:${feedScopeCacheKey(feed)}:${limit}:${String(sessionSeed).slice(0, 24)}:${dayKey}`;
     if (cacheKey) {
       const cached = await cacheGetJson(cacheKey);
       if (cached) return res.json(cached);
@@ -33,6 +36,7 @@ router.get('/table-offerings', optionalAuth, async (req, res, next) => {
       userId: req.userId || null,
       limit,
       sessionSeed: `${sessionSeed}|${dayKey}|tables`,
+      feed,
     });
     const payload = { items };
     await cacheSetJson(cacheKey, payload, req.userId ? 25 : 30);
@@ -46,10 +50,11 @@ router.get('/table-offerings', optionalAuth, async (req, res, next) => {
 router.get('/community-hosted-events', optionalAuth, async (req, res, next) => {
   try {
     const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 24, 1), 30);
-    const cacheKey = `home:community-events:v2:${req.userId || 'anon'}:${limit}`;
+    const feed = await resolveFeedScope(req);
+    const cacheKey = `home:community-events:v3:${req.userId || 'anon'}:${feedScopeCacheKey(feed)}:${limit}`;
     const cached = await cacheGetJson(cacheKey);
     if (cached) return res.json(cached);
-    const items = await buildCommunityHostedEvents({ limit, userId: req.userId || null });
+    const items = await buildCommunityHostedEvents({ limit, userId: req.userId || null, feed });
     const payload = { items };
     await cacheSetJson(cacheKey, payload, 20);
     res.json(payload);
@@ -165,7 +170,13 @@ router.get('/bootstrap', optionalAuth, async (req, res, next) => {
     const tableLimit = Math.min(Math.max(parseInt(req.query.tableLimit, 10) || 24, 1), 60);
     const promoLimit = Math.min(Math.max(parseInt(req.query.promoLimit, 10) || 12, 1), 20);
     const userPart = req.userId || 'anon';
-    const cacheKey = `home:bootstrap:v3:${userPart}:${scopeAll ? 'all' : overrideCity || 'default'}:${tableLimit}:${promoLimit}`;
+    const feed = await resolveFeedScope(req);
+    const geo = parseGeoQuery(req.query);
+    const legacyGeoPart = geo ? `${geo.lat.toFixed(2)},${geo.lng.toFixed(2)},${geo.radiusKm}` : '-';
+    const scopePart = feed
+      ? feedScopeCacheKey(feed)
+      : `${scopeAll ? 'all' : overrideCity || 'default'}:${legacyGeoPart}`;
+    const cacheKey = `home:bootstrap:v4:${userPart}:${scopePart}:${tableLimit}:${promoLimit}`;
     const cached = await cacheGetJson(cacheKey);
     if (cached) return res.json(cached);
 

@@ -9,10 +9,9 @@ import { Check, ChevronDown, Loader2, RotateCcw } from 'lucide-react';
 import { toast } from 'sonner';
 import { format, parseISO } from 'date-fns';
 import { cn } from '@/lib/utils';
+import { formatZar as formatRand } from '@/lib/money';
 
-function formatZar(n) {
-  return `R ${Number(n || 0).toFixed(2)}`;
-}
+const formatZar = (n) => formatRand(n, { cents: true });
 
 function formatPaymentDate(value) {
   if (!value) return '—';

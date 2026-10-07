@@ -14,9 +14,11 @@ import ImageCropDialog from '@/components/profile/ImageCropDialog';
 import { useImageCropUpload } from '@/hooks/useImageCropUpload';
 import { launchPaystackInline, verifyPaystackReferenceWithRetry } from '@/lib/paystackInline';
 import PageBackHeader from '@/components/layout/PageBackHeader';
-import { useActiveVenue } from '@/context/ActiveVenueContext';
+import { useActiveVenue, useActiveVenueOptional } from '@/context/ActiveVenueContext';
 import { useBusinessVenueScope } from '@/hooks/useBusinessVenueScope';
 import { staffPromotionsListUrl } from '@/lib/staffVenueApi';
+import { useAuth } from '@/lib/AuthContext';
+import { useContentCities, mergeCityLabels } from '@/hooks/useContentCities';
 
 const PUBLISH_ZAR_PER_DAY = 50;
 const BOOST_ZAR_PER_DAY = 150;
@@ -194,7 +196,20 @@ async function checkoutPromotionBoostOnly({ promotionId, days, email, onSuccess 
   return true;
 }
 
-const SA_CITIES = ['Johannesburg', 'Cape Town', 'Durban', 'Pretoria', 'Bloemfontein', 'Port Elizabeth', 'East London', 'Polokwane', 'Nelspruit', 'Rustenburg'];
+/** City options for promotion targeting: cities with content in the venue's country, plus the current value. */
+function TargetCityOptions({ value }) {
+  const { userProfile } = useAuth();
+  const { activeVenue } = useActiveVenueOptional() || {};
+  const countryCode = activeVenue?.country_code || userProfile?.country_code || null;
+  const { cities } = useContentCities({ source: 'all', countryCode });
+  const ownCity = activeVenue?.city || userProfile?.city;
+  const options = mergeCityLabels(cities, ownCity ? [ownCity] : [], value ? [value] : []);
+  return options.map((c) => (
+    <option key={c} value={c}>
+      {c}
+    </option>
+  ));
+}
 const TYPES = [
   { value: 'VENUE_PROMOTION', label: 'Venue Promotion' },
   { value: 'EVENT_PROMOTION', label: 'Event Promotion' },
@@ -571,12 +586,8 @@ const PromotionCreateForm = React.memo(function PromotionCreateForm({
       <div style={{ marginTop: 14 }}>
         <Label>Target City</Label>
         <select className="sec-input-rect" value={form.targetCity} onChange={(e) => setForm((f) => ({ ...f, targetCity: e.target.value }))} style={{ marginTop: 6, height: 44, width: '100%' }}>
-          <option value="">National — everyone</option>
-          {SA_CITIES.map((c) => (
-            <option key={c} value={c}>
-              {c}
-            </option>
-          ))}
+          <option value="">Whole country — everyone</option>
+          <TargetCityOptions value={form.targetCity} />
         </select>
       </div>
 
@@ -880,12 +891,8 @@ const PromotionEditModal = React.memo(function PromotionEditModal({ open, promot
             onChange={(e) => setForm((f) => ({ ...f, targetCity: e.target.value }))}
             style={{ marginTop: 6, height: 42 }}
           >
-            <option value="">National — Show to everyone</option>
-            {SA_CITIES.map((c) => (
-              <option key={c} value={c}>
-                {c}
-              </option>
-            ))}
+            <option value="">Whole country — show to everyone</option>
+            <TargetCityOptions value={form.targetCity} />
           </select>
         </div>
 
@@ -1079,7 +1086,7 @@ const PromotionCardsList = React.memo(function PromotionCardsList({
               <PromotionStatusBadge status={p.status} />
             </div>
             <p style={{ fontSize: 11, marginTop: 6, color: 'var(--sec-text-muted)' }}>{p.promotionType}</p>
-            <p style={{ fontSize: 11, marginTop: 2 }}>Target: {p.targetCity || 'National'}</p>
+            <p style={{ fontSize: 11, marginTop: 2 }}>Target: {p.targetCity || 'Whole country'}</p>
             <p style={{ fontSize: 11 }}>Views {p.boostImpressions + p.organicImpressions} · Clicks {p.totalClicks}</p>
             {p.eventId && <p style={{ fontSize: 11 }}>Event: {p.eventName || '—'}</p>}
             {p.boosted && listMode === 'live' ? (

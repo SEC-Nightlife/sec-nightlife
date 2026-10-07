@@ -3,6 +3,7 @@ import { ChevronLeft } from 'lucide-react';
 import { Textarea } from '@/components/ui/textarea';
 import SecLogo from '@/components/ui/SecLogo';
 import { menuSelectionTotal, menuSelectionToPayload } from '@/components/menu/MenuPicker';
+import { useMoney } from '@/hooks/useMoney';
 
 export function CustomTableRequestForm({
   onSubmit,
@@ -13,6 +14,7 @@ export function CustomTableRequestForm({
   compact = false,
   defaultWindow = null,
 }) {
+  const money = useMoney();
   const [minSpendMode, setMinSpendMode] = useState('manual');
   const [form, setForm] = useState({
     guestCount: 4,
@@ -120,7 +122,7 @@ export function CustomTableRequestForm({
             {menuPayload.map((line) => (
               <li key={line.menuItemId} style={{ marginBottom: 4 }}>
                 {line.quantity}× {line.name}
-                {line.unitPrice > 0 ? ` · R${(line.unitPrice * line.quantity).toLocaleString('en-ZA')}` : ''}
+                {line.unitPrice > 0 ? ` · ${money.format(line.unitPrice * line.quantity)}` : ''}
               </li>
             ))}
           </ul>
@@ -254,7 +256,7 @@ export function CustomTableRequestForm({
           >
             {menuTotal > 0 ? (
               <p className="text-sm" style={{ color: 'var(--sec-accent)', fontWeight: 600, margin: 0 }}>
-                Estimated total: R{menuTotal.toLocaleString('en-ZA', { maximumFractionDigits: 0 })}
+                Estimated total: {money.format(menuTotal)}
               </p>
             ) : (
               <p style={{ fontSize: 13, color: 'var(--sec-text-muted)', margin: 0 }}>

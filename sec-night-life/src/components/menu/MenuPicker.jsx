@@ -1,6 +1,7 @@
 import React, { useMemo } from 'react';
 import { Minus, Plus } from 'lucide-react';
 import { groupMenuByCategory } from '@/lib/groupMenuByCategory';
+import { useMoney } from '@/hooks/useMoney';
 
 /** Build map of bundled included quantities by menu item id. */
 export function includedQtyMap(includedItems = []) {
@@ -97,6 +98,7 @@ export default function MenuPicker({
   disabled = false,
   includedItems = [],
 }) {
+  const money = useMoney();
   const normalized = useMemo(
     () =>
       items.map((item) => ({
@@ -165,7 +167,7 @@ export default function MenuPicker({
                 )}
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontWeight: 600, fontSize: 13 }}>{item.name}</div>
-                  <div style={{ fontSize: 12, color: 'var(--sec-accent)' }}>R{item.price.toFixed(0)}</div>
+                  <div style={{ fontSize: 12, color: 'var(--sec-accent)' }}>{money.format(item.price)}</div>
                 </div>
                 <QtyStepper
                   qty={qty}
@@ -191,7 +193,7 @@ export default function MenuPicker({
         }}
       >
         <span style={{ fontSize: 13, color: 'var(--sec-text-muted)' }}>Selection total</span>
-        <span style={{ fontSize: 16, fontWeight: 700 }}>R{cartTotal.toFixed(0)}</span>
+        <span style={{ fontSize: 16, fontWeight: 700 }}>{money.format(cartTotal)}</span>
       </div>
     </div>
   );

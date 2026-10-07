@@ -16,6 +16,9 @@ import {
 import { motion, AnimatePresence } from 'framer-motion';
 
 import VenueCard from '@/components/home/VenueCard';
+import FeedScopeToggle from '@/components/location/FeedScopeToggle';
+import { useFeedScopeParams } from '@/hooks/useFeedScope';
+import { useContentCities, mergeCityLabels } from '@/hooks/useContentCities';
 
 const VENUE_TYPES = [
   { value: 'all', label: 'All', icon: Sparkles },
@@ -25,23 +28,31 @@ const VENUE_TYPES = [
   { value: 'beach_club', label: 'Beach Clubs', icon: Palmtree },
 ];
 
-const CITIES = ['Johannesburg', 'Cape Town', 'Durban', 'Pretoria', 'Sandton'];
 
 export default function Explore() {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedType, setSelectedType] = useState('all');
   const [selectedCity, setSelectedCity] = useState('');
   const [showFilters, setShowFilters] = useState(false);
+  const scope = useFeedScopeParams();
+  const { cities: contentCities } = useContentCities({
+    source: 'venues',
+    countryCode: scope.feedScope === 'worldwide' ? null : scope.countryCode,
+  });
 
   const { data: venues = [], isLoading } = useQuery({
-    queryKey: ['venues', selectedType, selectedCity],
+    queryKey: ['venues', selectedType, selectedCity, scope.key],
     queryFn: async () => {
-      const filter = {};
+      const filter = { ...scope.params };
       if (selectedType !== 'all') filter.venue_type = selectedType;
-      if (selectedCity) filter.city = selectedCity;
+      if (selectedCity) {
+        filter.city = selectedCity;
+        filter.feed_scope = 'worldwide';
+      }
       return dataService.Venue.filter(filter, '-rating', 50);
     },
   });
+  const cityOptions = mergeCityLabels(contentCities.slice(0, 24), selectedCity ? [selectedCity] : []);
 
   const filteredVenues = venues.filter((venue) => {
     const q = searchQuery.toLowerCase();
@@ -58,7 +69,10 @@ export default function Explore() {
     <div style={{ minHeight: '100vh', backgroundColor: 'var(--sec-bg-base)' }}>
       <header style={{ position: 'sticky', top: 0, zIndex: 40, paddingTop: 'env(safe-area-inset-top)', backgroundColor: 'rgba(0,0,0,0.92)', backdropFilter: 'blur(16px)', borderBottom: '1px solid var(--sec-border)' }}>
         <div style={{ padding: 'var(--space-4) var(--space-6)' }}>
-          <h1 style={{ fontSize: 24, fontWeight: 600, marginBottom: 16, color: 'var(--sec-text-primary)' }}>Explore</h1>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 16 }}>
+            <h1 style={{ fontSize: 24, fontWeight: 600, color: 'var(--sec-text-primary)' }}>Explore</h1>
+            <FeedScopeToggle compact />
+          </div>
           <div style={{ display: 'flex', gap: 12 }}>
             <div style={{ flex: 1, position: 'relative' }}>
               <Search size={18} strokeWidth={1.5} style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', color: 'var(--sec-text-muted)' }} />
@@ -97,7 +111,7 @@ export default function Explore() {
                   <button onClick={() => setSelectedCity('')} style={{ padding: '8px 14px', borderRadius: 999, fontSize: 13, backgroundColor: !selectedCity ? 'var(--sec-accent)' : 'var(--sec-bg-card)', color: !selectedCity ? 'var(--sec-bg-base)' : 'var(--sec-text-secondary)', border: `1px solid ${!selectedCity ? 'var(--sec-accent)' : 'var(--sec-border)'}` }}>
                     All Cities
                   </button>
-                  {CITIES.map((city) => (
+                  {cityOptions.map((city) => (
                     <button key={city} onClick={() => setSelectedCity(city)} style={{ padding: '8px 14px', borderRadius: 999, fontSize: 13, backgroundColor: selectedCity === city ? 'var(--sec-accent)' : 'var(--sec-bg-card)', color: selectedCity === city ? 'var(--sec-bg-base)' : 'var(--sec-text-secondary)', border: `1px solid ${selectedCity === city ? 'var(--sec-accent)' : 'var(--sec-border)'}` }}>
                       {city}
                     </button>

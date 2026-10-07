@@ -658,6 +658,14 @@ const profileUpdateSchema = z.object({
   latitude: z.number().min(-90).max(90).optional().nullable(),
   longitude: z.number().min(-180).max(180).optional().nullable(),
   location_label: z.string().max(300).optional().nullable(),
+  country_code: z
+    .string()
+    .trim()
+    .regex(/^[A-Za-z]{2}$/, 'Use a 2-letter country code')
+    .transform((v) => v.toUpperCase())
+    .optional()
+    .nullable(),
+  region: z.string().max(120).optional().nullable(),
   avatar_url: optionalMediaUrl,
   favorite_drink: z.string().max(100).optional().nullable(),
   gender: z.enum(PROFILE_GENDER_VALUES).optional().nullable(),
@@ -709,6 +717,8 @@ router.get('/profile', authenticateToken, async (req, res, next) => {
       latitude: profile?.latitude ?? null,
       longitude: profile?.longitude ?? null,
       location_label: profile?.locationLabel ?? null,
+      country_code: profile?.countryCode ?? null,
+      region: profile?.region ?? null,
       avatar_url: profile?.avatarUrl,
       favorite_drink: profile?.favoriteDrink,
       gender: profile?.gender ?? null,
@@ -777,6 +787,8 @@ router.get('/profile/:id', authenticateToken, async (req, res, next) => {
       latitude: profile?.latitude ?? null,
       longitude: profile?.longitude ?? null,
       location_label: profile?.locationLabel ?? null,
+      country_code: profile?.countryCode ?? null,
+      region: profile?.region ?? null,
       avatar_url: profile?.avatarUrl,
       favorite_drink: profile?.favoriteDrink,
       gender: profile?.gender ?? null,
@@ -928,6 +940,8 @@ router.get('/filter', authenticateToken, async (req, res, next) => {
         latitude: p?.latitude ?? null,
         longitude: p?.longitude ?? null,
         location_label: p?.locationLabel ?? null,
+        country_code: p?.countryCode ?? null,
+        region: p?.region ?? null,
         avatar_url: p?.avatarUrl,
         favorite_drink: p?.favoriteDrink,
         gender: p?.gender ?? null,
@@ -991,6 +1005,8 @@ router.post('/', authenticateToken, async (req, res, next) => {
       ...(data.latitude !== undefined && { latitude: data.latitude }),
       ...(data.longitude !== undefined && { longitude: data.longitude }),
       ...(data.location_label !== undefined && { locationLabel: data.location_label }),
+      ...(data.country_code !== undefined && { countryCode: data.country_code }),
+      ...(data.region !== undefined && { region: data.region }),
       ...(data.avatar_url != null && { avatarUrl: data.avatar_url }),
       ...(data.favorite_drink != null && { favoriteDrink: data.favorite_drink }),
       ...(data.gender !== undefined && { gender: data.gender }),
@@ -1051,6 +1067,8 @@ router.post('/', authenticateToken, async (req, res, next) => {
       latitude: profile.latitude ?? null,
       longitude: profile.longitude ?? null,
       location_label: profile.locationLabel ?? null,
+      country_code: profile.countryCode ?? null,
+      region: profile.region ?? null,
       avatar_url: profile.avatarUrl,
       favorite_drink: profile.favoriteDrink,
       gender: profile.gender ?? null,
@@ -1137,6 +1155,8 @@ router.patch('/profile', authenticateToken, async (req, res, next) => {
       ...(data.latitude !== undefined && { latitude: data.latitude }),
       ...(data.longitude !== undefined && { longitude: data.longitude }),
       ...(data.location_label !== undefined && { locationLabel: data.location_label }),
+      ...(data.country_code !== undefined && { countryCode: data.country_code }),
+      ...(data.region !== undefined && { region: data.region }),
       ...(data.avatar_url !== undefined && { avatarUrl: data.avatar_url }),
       ...(data.favorite_drink != null && { favoriteDrink: data.favorite_drink }),
       ...(data.gender !== undefined && { gender: data.gender }),
@@ -1200,6 +1220,8 @@ router.patch('/profile', authenticateToken, async (req, res, next) => {
       latitude: profile.latitude ?? null,
       longitude: profile.longitude ?? null,
       location_label: profile.locationLabel ?? null,
+      country_code: profile.countryCode ?? null,
+      region: profile.region ?? null,
       avatar_url: profile.avatarUrl,
       favorite_drink: profile.favoriteDrink,
       gender: profile.gender ?? null,
@@ -1302,6 +1324,8 @@ router.patch('/:id', authenticateToken, async (req, res, next) => {
     if (data.latitude !== undefined) updates.latitude = data.latitude;
     if (data.longitude !== undefined) updates.longitude = data.longitude;
     if (data.location_label !== undefined) updates.locationLabel = data.location_label;
+    if (data.country_code !== undefined) updates.countryCode = data.country_code;
+    if (data.region !== undefined) updates.region = data.region;
     if (data.avatar_url !== undefined) updates.avatarUrl = data.avatar_url;
     if (data.favorite_drink != null) updates.favoriteDrink = data.favorite_drink;
     if (data.gender !== undefined) updates.gender = data.gender;
@@ -1355,6 +1379,8 @@ router.patch('/:id', authenticateToken, async (req, res, next) => {
       latitude: updated.latitude ?? null,
       longitude: updated.longitude ?? null,
       location_label: updated.locationLabel ?? null,
+      country_code: updated.countryCode ?? null,
+      region: updated.region ?? null,
       avatar_url: updated.avatarUrl,
       favorite_drink: updated.favoriteDrink,
       gender: updated.gender ?? null,

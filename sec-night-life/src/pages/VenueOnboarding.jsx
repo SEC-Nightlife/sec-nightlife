@@ -32,6 +32,8 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { toast } from 'sonner';
 import { useQuery } from '@tanstack/react-query';
 import GoogleAddressInput from '@/components/GoogleAddressInput';
+import CountryCityPicker from '@/components/location/CountryCityPicker';
+import { DEFAULT_COUNTRY_CODE, guessCountryFromBrowser, normalizeCountryCode } from '@/lib/countries';
 import GoogleMapDisplay from '@/components/GoogleMapDisplay';
 import SecLogo from '@/components/ui/SecLogo';
 import OnboardingStepIndicator from '@/components/onboarding/OnboardingStepIndicator';
@@ -54,10 +56,6 @@ const VENUE_TYPES = [
   { value: 'beach_club', label: 'Beach Club' },
 ];
 
-const CITIES = [
-  'Johannesburg', 'Cape Town', 'Durban', 'Pretoria', 'Sandton', 
-  'Port Elizabeth', 'Bloemfontein', 'East London', 'Nelspruit', 'Polokwane'
-];
 const DRAFT_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
 
 function venueOnboardingDraftKey(userId) {
@@ -91,6 +89,7 @@ const INITIAL_FORM_DATA = {
   bio: '',
   address: '',
   city: '',
+  country_code: guessCountryFromBrowser() || DEFAULT_COUNTRY_CODE,
   suburb: '',
   province: '',
   latitude: null,
@@ -142,6 +141,7 @@ function mapVenueDetailToForm(v) {
     bio: v.bio ?? '',
     address: v.address ?? '',
     city: v.city ?? '',
+    country_code: normalizeCountryCode(v.country_code) || INITIAL_FORM_DATA.country_code,
     suburb: v.suburb ?? '',
     province: v.province ?? '',
     latitude: v.latitude ?? null,
@@ -420,6 +420,7 @@ export default function VenueOnboarding() {
           name: formData.name.trim(),
           venue_type: formData.venue_type,
           city: formData.city.trim(),
+          country_code: formData.country_code || null,
           capacity: parseInt(formData.capacity, 10) || 0,
           age_limit: parseInt(formData.age_limit, 10) || 18,
         };
@@ -665,6 +666,7 @@ export default function VenueOnboarding() {
         name: formData.name,
         venue_type: formData.venue_type,
         city: formData.city,
+        country_code: formData.country_code || null,
         capacity: parseInt(formData.capacity) || 0,
         age_limit: parseInt(formData.age_limit) || 18,
       };
@@ -791,6 +793,7 @@ export default function VenueOnboarding() {
         name: formData.name,
         venue_type: formData.venue_type,
         city: formData.city,
+        country_code: formData.country_code || null,
         capacity: parseInt(formData.capacity) || 0,
         age_limit: parseInt(formData.age_limit) || 18,
       };
@@ -829,7 +832,7 @@ export default function VenueOnboarding() {
   const visibleSteps = isStaffEdit ? steps.filter((s) => s.number <= 3) : steps;
 
   const canProceed = () => {
-    if (step === 1) return formData.name && formData.venue_type && formData.city;
+    if (step === 1) return formData.name && formData.venue_type && formData.country_code && formData.city;
     if (step === 2) return true;
     if (step === 3) return formData.name?.trim() && formData.venue_type && formData.city?.trim();
     if (step === 4) return true;
@@ -1026,19 +1029,23 @@ export default function VenueOnboarding() {
                   </Select>
                 </div>
 
-                <div>
-                  <Label className="text-gray-400 text-sm">City *</Label>
-                  <Select value={formData.city} onValueChange={(value) => setFormData(prev => ({ ...prev, city: value }))}>
-                    <SelectTrigger className="mt-2 h-12 bg-[#141416] border-[#262629] rounded-xl">
-                      <SelectValue placeholder="Select city" />
-                    </SelectTrigger>
-                    <SelectContent className="bg-[#141416] border-[#262629] text-white">
-                      {CITIES.map((city) => (
-                        <SelectItem key={city} value={city} className="text-white">{city}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
+                <CountryCityPicker
+                  required
+                  cityPlaceholder="City where the venue is"
+                  value={{
+                    countryCode: formData.country_code,
+                    city: formData.city,
+                    region: formData.province,
+                  }}
+                  onChange={(next) =>
+                    setFormData((prev) => ({
+                      ...prev,
+                      country_code: next.countryCode || '',
+                      city: next.city || '',
+                      province: next.region || prev.province || '',
+                    }))
+                  }
+                />
 
                 <div>
                   <Label className="text-gray-400 text-sm">Bio</Label>
@@ -1086,11 +1093,7 @@ export default function VenueOnboarding() {
                            const structured = await reverseGeocodeLatLngStructured(lat, lng);
                            const normalizedCity =
                              typeof structured?.city === 'string' ? structured.city.trim() : '';
-                           const mappedCity = CITIES.some(
-                             (c) => c.toLowerCase() === normalizedCity.toLowerCase(),
-                           )
-                             ? normalizedCity
-                             : undefined;
+                           const geoCountry = normalizeCountryCode(structured?.country);
                            setFormData((prev) => ({
                              ...prev,
                              address:
@@ -1101,7 +1104,8 @@ export default function VenueOnboarding() {
                              province: structured?.province || prev.province || '',
                              latitude: lat,
                              longitude: lng,
-                             ...(mappedCity ? { city: mappedCity } : {}),
+                             ...(normalizedCity ? { city: normalizedCity } : {}),
+                             ...(geoCountry ? { country_code: geoCountry } : {}),
                            }));
                            toast.success(
                              structured?.formattedAddress
@@ -1146,15 +1150,15 @@ export default function VenueOnboarding() {
                        suburb: formData.suburb,
                        city: formData.city,
                        province: formData.province,
-                       country: 'ZA',
+                       country: formData.country_code || null,
                        latitude: formData.latitude,
                        longitude: formData.longitude,
                      }}
+                     countryCode={formData.country_code}
                      onChange={(addr) => setFormData((prev) => {
                        const normalizedCity = typeof addr?.city === 'string' ? addr.city.trim() : '';
-                       const mappedCity = CITIES.some((c) => c.toLowerCase() === normalizedCity.toLowerCase())
-                         ? normalizedCity
-                         : prev.city;
+                       const mappedCity = normalizedCity || prev.city;
+                       const addrCountry = normalizeCountryCode(addr?.country);
 
                        return {
                          ...prev,
@@ -1164,9 +1168,10 @@ export default function VenueOnboarding() {
                          latitude: addr?.latitude ?? null,
                          longitude: addr?.longitude ?? null,
                          city: mappedCity,
+                         ...(addrCountry ? { country_code: addrCountry } : {}),
                        };
                      })}
-                     placeholder="123 Main Street, Sandton"
+                     placeholder="Street address"
                    />
                  </div>
 
@@ -1432,11 +1437,23 @@ export default function VenueOnboarding() {
               </div>
 
               <div className="space-y-4">
-                {renderFileUpload('cipc_document_url', 'CIPC Registration Document', true)}
-                {renderFileUpload('director_id_url', 'Director ID Document', true)}
-                {renderFileUpload('sars_document_url', 'South African Revenue Service (SARS) Documents', true)}
-                {renderFileUpload('annual_returns_url', 'Annual Returns', true)}
-                {renderFileUpload('liquor_license_url', 'Valid Liquor License', true)}
+                {renderFileUpload(
+                  'cipc_document_url',
+                  formData.country_code === 'ZA'
+                    ? 'CIPC Registration Document'
+                    : 'Company registration document',
+                  true,
+                )}
+                {renderFileUpload('director_id_url', 'Director / owner ID document', true)}
+                {renderFileUpload(
+                  'sars_document_url',
+                  formData.country_code === 'ZA'
+                    ? 'South African Revenue Service (SARS) Documents'
+                    : 'Tax registration document (e.g. SARS in South Africa)',
+                  true,
+                )}
+                {renderFileUpload('annual_returns_url', 'Annual returns (or latest company filing)', true)}
+                {renderFileUpload('liquor_license_url', 'Valid liquor / alcohol licence', true)}
                 
                 <div>
                   <Label className="text-gray-400 text-sm">

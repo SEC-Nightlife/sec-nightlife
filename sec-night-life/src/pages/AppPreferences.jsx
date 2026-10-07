@@ -9,6 +9,8 @@ import {
   Shield,
   LocateFixed,
   Loader2,
+  Compass,
+  Coins,
 } from 'lucide-react';
 import { createPageUrl } from '@/utils';
 import { usePreferences } from '@/context/PreferencesContext';
@@ -18,6 +20,9 @@ import PageBackHeader from '@/components/layout/PageBackHeader';
 import GoogleAddressInput from '@/components/GoogleAddressInput';
 import { apiPatch } from '@/api/client';
 import { toast } from 'sonner';
+import FeedScopeToggle from '@/components/location/FeedScopeToggle';
+import { allCountryCurrencies, currencyForCountry } from '@/lib/countries';
+import { listCurrencies } from '@/lib/money';
 
 function SectionCard({ title, children }) {
   return (
@@ -89,7 +94,12 @@ export default function AppPreferences() {
     requestGeoCoords,
     setPreferredGeoCoords,
     geoCoords,
+    displayCurrency,
+    setDisplayCurrency,
+    viewerCountryCode,
   } = usePreferences();
+  const countryCurrency = currencyForCountry(viewerCountryCode);
+  const currencyOptions = React.useMemo(() => listCurrencies(allCountryCurrencies()), []);
   const { userProfile, checkAppState } = useAuth();
   const [locating, setLocating] = useState(false);
   const [placeDraft, setPlaceDraft] = useState(() => placeFromProfile(userProfile));
@@ -235,6 +245,43 @@ export default function AppPreferences() {
             <span className="text-sm" style={{ color: 'var(--sec-text-muted)' }}>
               English
             </span>
+          </SettingRow>
+        </SectionCard>
+
+        <SectionCard title="What you see">
+          <div className="p-4 space-y-3" style={{ borderBottom: '1px solid var(--sec-border)' }}>
+            <div className="flex items-start gap-4">
+              <Compass className="w-5 h-5 shrink-0 mt-0.5" style={{ color: 'var(--sec-text-muted)' }} />
+              <div className="flex-1 min-w-0">
+                <p className="font-medium" style={{ color: 'var(--sec-text-primary)' }}>
+                  Show events, tables and venues from
+                </p>
+                <p className="text-sm mt-0.5" style={{ color: 'var(--sec-text-muted)' }}>
+                  Near me uses your location (or your city). You can also browse your whole country or the world.
+                </p>
+              </div>
+            </div>
+            <FeedScopeToggle />
+          </div>
+          <SettingRow
+            icon={Coins}
+            label="Display currency"
+            description="Prices are converted for display only (approximate). Payments are charged in South African rand (ZAR)."
+          >
+            <select
+              aria-label="Display currency"
+              value={displayCurrency || ''}
+              onChange={(e) => setDisplayCurrency(e.target.value || null)}
+              className="sec-input-rect"
+              style={{ height: 38, maxWidth: 170, paddingTop: 0, paddingBottom: 0, fontSize: 13 }}
+            >
+              <option value="">Auto ({countryCurrency})</option>
+              {currencyOptions.map((c) => (
+                <option key={c.code} value={c.code}>
+                  {c.code} — {c.name}
+                </option>
+              ))}
+            </select>
           </SettingRow>
         </SectionCard>
 

@@ -6,6 +6,7 @@ import { format, parseISO, isToday, isTomorrow, isValid } from 'date-fns';
 import { MapPin, Users, Sparkles, Crown } from 'lucide-react';
 import { getEventImage, NIGHTLIFE_PLACEHOLDERS } from '@/lib/placeholders';
 import { hostedListingDetailsPath } from '@/lib/hostedListingUrl';
+import { useMoney } from '@/hooks/useMoney';
 
 function offeringHref(offering) {
   if (!offering) return createPageUrl('Tables');
@@ -44,6 +45,7 @@ function dateLabel(iso) {
 }
 
 export default function TableOfferingCard({ offering, wide = false }) {
+  const money = useMoney();
   const [imgError, setImgError] = useState(false);
   if (!offering?.id) return null;
 
@@ -296,12 +298,12 @@ export default function TableOfferingCard({ offering, wide = false }) {
             )}
             {isHosted && offering.minJoinFeeZar != null && offering.minJoinFeeZar > 0 && (
               <span style={{ color: 'rgba(212,175,55,0.9)', fontWeight: 600 }}>
-                {isPrivate ? 'Request from ' : 'Join from '}R{Number(offering.minJoinFeeZar).toFixed(0)}
+                {isPrivate ? 'Request from ' : 'Join from '}{money.format(offering.minJoinFeeZar)}
               </span>
             )}
             {!isHosted && offering.minBookingFeeZar > 0 && (
               <span style={{ color: 'rgba(212,175,55,0.9)', fontWeight: 600 }}>
-                From R{Number(offering.minBookingFeeZar).toFixed(0)} fee
+                From {money.format(offering.minBookingFeeZar)} fee
               </span>
             )}
             {isHosted && (offering.minJoinFeeZar == null || offering.minJoinFeeZar === 0) && (

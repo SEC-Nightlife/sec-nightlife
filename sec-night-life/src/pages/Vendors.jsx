@@ -8,8 +8,10 @@ import { createPageUrl } from '@/utils';
 import { useAuth } from '@/lib/AuthContext';
 import PageBackHeader from '@/components/layout/PageBackHeader';
 import { VENDOR_CATEGORIES, vendorCategoryLabel, vendorPriceText } from '@/lib/vendorCategories';
-import { formatZar } from '@/lib/money';
+import { useMoney } from '@/hooks/useMoney';
 import VendorInquiriesList from '@/components/vendors/VendorInquiriesList';
+import { useFeedScopeParams } from '@/hooks/useFeedScope';
+import FeedScopeToggle from '@/components/location/FeedScopeToggle';
 
 const PAGE_SIZE = 24;
 const MIN_RATING_OPTIONS = [
@@ -36,14 +38,20 @@ export default function Vendors() {
   const [minRating, setMinRating] = useState(0);
   const [showRequests, setShowRequests] = useState(false);
   const search = useDebounced(searchQuery.trim(), 300);
+  const feedScope = useFeedScopeParams();
 
   const { data, isLoading, fetchNextPage, hasNextPage, isFetchingNextPage } = useInfiniteQuery({
-    queryKey: ['vendors', { search, selectedCategory, selectedCity, sort, minRating }],
+    queryKey: ['vendors', { search, selectedCategory, selectedCity, sort, minRating, scope: feedScope.key }],
     initialPageParam: 1,
     queryFn: ({ pageParam }) => {
       const params = new URLSearchParams({ limit: String(PAGE_SIZE), page: String(pageParam), sort });
       if (selectedCategory && selectedCategory !== 'all') params.set('category', selectedCategory);
-      if (selectedCity) params.set('city', selectedCity);
+      if (selectedCity) {
+        params.set('feed_scope', 'worldwide');
+        params.set('city', selectedCity);
+      } else {
+        for (const [k, v] of Object.entries(feedScope.params)) params.set(k, v);
+      }
       if (search) params.set('search', search);
       if (minRating > 0) params.set('min_rating', String(minRating));
       return apiGet(`/api/vendors?${params.toString()}`);
@@ -69,9 +77,12 @@ export default function Vendors() {
       <PageBackHeader title="Vendors" pageName="Vendors" />
 
       <div className="px-4 lg:px-8 pt-4 max-w-5xl mx-auto">
-        <p style={{ color: 'var(--sec-text-muted)', fontSize: 14, margin: '0 0 16px', lineHeight: 1.45 }}>
+        <p style={{ color: 'var(--sec-text-muted)', fontSize: 14, margin: '0 0 12px', lineHeight: 1.45 }}>
           Find food stalls, equipment rentals, DJs, and more — read reviews from venues, then send a hire request.
         </p>
+        <div style={{ marginBottom: 16 }}>
+          <FeedScopeToggle />
+        </div>
 
         {sentCount > 0 ? (
           <div className="mb-4">
@@ -212,8 +223,9 @@ export default function Vendors() {
 }
 
 function VendorCard({ vendor }) {
+  const money = useMoney();
   const rating = vendor.rating || { average: 0, count: 0 };
-  const priceText = vendorPriceText(vendor, formatZar);
+  const priceText = vendorPriceText(vendor, money.format);
   return (
     <Link
       to={`${createPageUrl('VendorDetail')}?id=${encodeURIComponent(vendor.id)}`}

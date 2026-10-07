@@ -1,5 +1,6 @@
 import React from 'react';
 import { SERVICE_FEE_ZAR } from '@/lib/serviceFee';
+import ChargedInZarNote from '@/components/checkout/ChargedInZarNote';
 
 const SERVICE_FEE_NOTE = `A flat R${SERVICE_FEE_ZAR} SEC service fee is added to paid checkouts (non-refundable unless the event is cancelled).`;
 
@@ -49,6 +50,7 @@ export default function CheckoutCart({
         <span>Total due now</span>
         <span style={{ color: 'var(--sec-accent)' }}>R{total.toFixed(2)}</span>
       </div>
+      <ChargedInZarNote amountZar={total} style={{ textAlign: 'right' }} />
       {lines.length > 0 && footnote ? (
         <p className="text-[10px] leading-relaxed pt-1" style={{ color: 'var(--sec-text-muted)' }}>
           {footnote}

@@ -1,4 +1,5 @@
 import { prisma } from './prisma.js';
+import { scopeWhere, hostedTableScopeWhere } from './feedScope.js';
 import { logger } from './logger.js';
 import { externalListingEndsAt } from './externalListingSchedule.js';
 import { getBlockedUserIdsForViewer } from './blockedUsers.js';
@@ -238,7 +239,7 @@ function interleaveByType(sortedList, limit) {
 /**
  * Grouped table offerings for Home / Tables browse.
  */
-export async function buildTableOfferings({ userId, limit = 40, sessionSeed = 'default' } = {}) {
+export async function buildTableOfferings({ userId, limit = 40, sessionSeed = 'default', feed = null } = {}) {
   const cappedLimit = Math.min(Math.max(limit, 1), 60);
   const rowCap = Math.min(cappedLimit * 12, 360);
   const today = new Date();
@@ -259,9 +260,11 @@ export async function buildTableOfferings({ userId, limit = 40, sessionSeed = 'd
     }
   }
 
+  const venueScope = scopeWhere(feed);
   const venueWhere = {
     isActive: true,
     status: { in: ['AVAILABLE', 'PARTIALLY_FILLED'] },
+    ...(Object.keys(venueScope).length ? { venue: venueScope } : {}),
   };
   const venueInclude = {
     venue: { select: { id: true, name: true, city: true, coverImageUrl: true } },
@@ -316,6 +319,7 @@ export async function buildTableOfferings({ userId, limit = 40, sessionSeed = 'd
   });
 
   const now = new Date();
+  const hostedScope = hostedTableScopeWhere(feed);
   const hostedWhere = {
     status: 'ACTIVE',
     spotsRemaining: { gt: 0 },
@@ -323,6 +327,7 @@ export async function buildTableOfferings({ userId, limit = 40, sessionSeed = 'd
       { windowEndsAt: { gt: now } },
       { windowEndsAt: null, eventDate: { gte: today } },
     ],
+    ...(hostedScope ? { AND: [hostedScope] } : {}),
   };
 
   const hostedRowsRaw = await prisma.hostedTable.findMany({
@@ -600,12 +605,13 @@ export async function buildTableOfferings({ userId, limit = 40, sessionSeed = 'd
 /**
  * External hosted listings marked as EVENT surface — shown in Home Events section.
  */
-export async function buildCommunityHostedEvents({ limit = 12, userId = null } = {}) {
+export async function buildCommunityHostedEvents({ limit = 12, userId = null, feed = null } = {}) {
   const cappedLimit = Math.min(Math.max(limit, 1), 30);
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const now = new Date();
   const blockedUserIds = await getBlockedUserIdsForViewer(userId);
+  const ownScope = scopeWhere(feed);
 
   const rowsRaw = await prisma.hostedTable.findMany({
     where: {
@@ -618,6 +624,7 @@ export async function buildCommunityHostedEvents({ limit = 12, userId = null } =
         { windowEndsAt: { gt: now } },
         { windowEndsAt: null, eventDate: { gte: today } },
       ],
+      ...ownScope,
     },
     take: Math.min(cappedLimit * 3, 60),
     orderBy: [{ boosted: 'desc' }, { eventDate: 'asc' }],

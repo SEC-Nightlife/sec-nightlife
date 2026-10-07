@@ -141,6 +141,8 @@ function formatUserProfileForMe(user, p) {
     latitude: p.latitude ?? null,
     longitude: p.longitude ?? null,
     location_label: p.locationLabel ?? null,
+    country_code: p.countryCode ?? null,
+    region: p.region ?? null,
   };
 }
 

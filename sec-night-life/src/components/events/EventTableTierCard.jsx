@@ -2,14 +2,12 @@ import React from 'react';
 import { Crown } from 'lucide-react';
 
 import { formatWindowLabel, isOvernightWindow } from '@/lib/dayBookingSlotUtils';
-
-function formatZar(n) {
-  const v = Number(n) || 0;
-  return v > 0 ? `R${v.toLocaleString('en-ZA', { maximumFractionDigits: 0 })}` : 'Free';
-}
+import { useMoney } from '@/hooks/useMoney';
 
 export default function EventTableTierCard({ tier, onSelect, venueWindow }) {
+  const money = useMoney();
   if (!tier) return null;
+  const formatZar = (n) => (Number(n) > 0 ? money.format(n) : 'Free');
   const isVip = tier.category === 'vip';
 
   return (

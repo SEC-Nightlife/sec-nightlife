@@ -20,6 +20,8 @@ import MenuCheckoutLines from '@/components/checkout/MenuCheckoutLines';
 import { ticketTierAllowsMenuAddons } from '@/lib/ticketMenuAddons';
 import { isEventEnded } from '@/lib/eventLifecycle';
 import { SERVICE_FEE_LABEL, serviceFeeForSubtotal, totalWithServiceFee } from '@/lib/serviceFee';
+import { useMoney } from '@/hooks/useMoney';
+import ChargedInZarNote from '@/components/checkout/ChargedInZarNote';
 
 const selectContentClass =
   'bg-[var(--sec-bg-card)] border-[var(--sec-border)] text-[var(--sec-text-primary)] w-[var(--radix-select-trigger-width)]';
@@ -27,6 +29,7 @@ const selectItemClass =
   'text-[var(--sec-text-primary)] focus:bg-[var(--sec-bg-elevated)] focus:text-[var(--sec-text-primary)] data-[highlighted]:bg-[var(--sec-bg-elevated)]';
 
 export default function TicketCheckout() {
+  const money = useMoney();
   const [params] = useSearchParams();
   const eventId = params.get('id') || params.get('event_id');
   const navigate = useNavigate();
@@ -247,7 +250,7 @@ export default function TicketCheckout() {
                 const capNote = cap != null ? ` · max ${cap}/person` : '';
                 return (
                   <SelectItem key={tier.name} value={tier.name} className={selectItemClass}>
-                    {tier.name} — {Number(tier.price) <= 0 ? 'Free' : `R${tier.price}`} ({left} left{capNote})
+                    {tier.name} — {Number(tier.price) <= 0 ? 'Free' : money.format(tier.price)} ({left} left{capNote})
                   </SelectItem>
                 );
               })}
@@ -375,6 +378,7 @@ export default function TicketCheckout() {
             <span style={{ fontWeight: 600 }}>Total</span>
             <span style={{ fontWeight: 800, fontSize: 18 }}>R{totalPrice.toFixed(2)}</span>
           </div>
+          <ChargedInZarNote amountZar={totalPrice} style={{ textAlign: 'right' }} />
         </div>
 
         <RefundPolicyNote style={{ marginTop: 16 }} />

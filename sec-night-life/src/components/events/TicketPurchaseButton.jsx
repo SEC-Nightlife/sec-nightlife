@@ -19,6 +19,8 @@ import MenuCheckoutLines from '@/components/checkout/MenuCheckoutLines';
 import { maxTicketQuantity, ownedCountForTier, parseMaxPerUser } from '@/lib/ticketTierLimits';
 import { ticketTierAllowsMenuAddons } from '@/lib/ticketMenuAddons';
 import { SERVICE_FEE_LABEL, serviceFeeForSubtotal, totalWithServiceFee } from '@/lib/serviceFee';
+import { useMoney } from '@/hooks/useMoney';
+import ChargedInZarNote from '@/components/checkout/ChargedInZarNote';
 
 const selectContentClass =
   'bg-[var(--sec-bg-card)] border-[var(--sec-border)] text-[var(--sec-text-primary)] w-[var(--radix-select-trigger-width)]';
@@ -27,6 +29,7 @@ const selectItemClass =
   'text-[var(--sec-text-primary)] focus:bg-[var(--sec-bg-elevated)] focus:text-[var(--sec-text-primary)] data-[highlighted]:bg-[var(--sec-bg-elevated)]';
 
 export default function TicketPurchaseButton({ event }) {
+  const money = useMoney();
   const queryClient = useQueryClient();
   const [isOpen, setIsOpen] = useState(false);
   const [selectedTier, setSelectedTier] = useState('');
@@ -200,7 +203,7 @@ export default function TicketPurchaseButton({ event }) {
   function formatTierLabel(tier) {
     const left = tier.quantity - (tier.sold || 0);
     const category = tier.category ? ` (${tier.category})` : '';
-    const priceLabel = Number(tier.price) <= 0 ? 'Free' : `R${tier.price}`;
+    const priceLabel = Number(tier.price) <= 0 ? 'Free' : money.format(tier.price);
     const cap = parseMaxPerUser(tier);
     const capNote = cap != null ? ` · max ${cap}/person` : '';
     return `${tier.name}${category} — ${priceLabel} (${left} left${capNote})`;
@@ -403,6 +406,7 @@ export default function TicketPurchaseButton({ event }) {
                   R{totalPrice.toLocaleString()}
                 </span>
               </div>
+              <ChargedInZarNote amountZar={totalPrice} style={{ margin: '-8px 0 12px', textAlign: 'right' }} />
 
               <Button
                 onClick={handlePurchase}

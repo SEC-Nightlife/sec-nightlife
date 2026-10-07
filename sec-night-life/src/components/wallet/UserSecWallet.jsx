@@ -6,10 +6,9 @@ import { Wallet, Copy, AlertCircle, ArrowDownLeft, Loader2 } from 'lucide-react'
 import { toast } from 'sonner';
 import { UserPayoutSetup } from './WalletPayoutSetup';
 import WeeklyPayoutNotice from './WeeklyPayoutNotice';
+import { formatZar as formatRand } from '@/lib/money';
 
-function formatZar(n) {
-  return `R ${Number(n || 0).toFixed(2)}`;
-}
+const formatZar = (n) => formatRand(n, { cents: true });
 
 export default function UserSecWallet({ userProfile, onProfileUpdated }) {
   const { data, isLoading, refetch } = useQuery({

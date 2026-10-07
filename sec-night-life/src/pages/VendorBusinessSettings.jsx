@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { DEFAULT_COUNTRY_CODE } from '@/lib/countries';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiGet, apiPost, apiPatch, apiDelete } from '@/api/client';
@@ -25,6 +26,7 @@ const EMPTY_DRAFT = {
   quote_on_request: false,
   service_area: '',
   city: '',
+  country: '',
   images: [],
   is_published: true,
 };
@@ -44,6 +46,7 @@ function draftFromVendor(vendor) {
     quote_on_request: Boolean(vendor.quote_on_request),
     service_area: vendor.service_area || '',
     city: vendor.city || '',
+    country: vendor.country || '',
     images: (vendor.images || []).map((i) => i.url),
     is_published: vendor.is_published !== false,
   };
@@ -103,7 +106,11 @@ export default function VendorBusinessSettings() {
 
   const startCreate = () => {
     setEditingId(null);
-    setDraft({ ...EMPTY_DRAFT, city: userProfile?.city || '' });
+    setDraft({
+      ...EMPTY_DRAFT,
+      city: userProfile?.city || '',
+      country: userProfile?.country_code || DEFAULT_COUNTRY_CODE,
+    });
     setMode('create');
   };
 
@@ -140,6 +147,7 @@ export default function VendorBusinessSettings() {
         price_unit: !draft.quote_on_request && Number.isFinite(price) && price > 0 ? draft.price_unit || 'per_event' : null,
         service_area: draft.service_area?.trim() || null,
         city,
+        country: draft.country || null,
         is_published: draft.is_published !== false,
         images: (draft.images || []).map((url, i) => ({ url, sort_order: i })),
       };

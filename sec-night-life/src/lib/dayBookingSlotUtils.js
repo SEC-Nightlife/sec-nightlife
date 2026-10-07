@@ -3,6 +3,51 @@ export const END_BUFFER_MINUTES = 0;
 export const SLOT_STEP_MINUTES = 30;
 const SAST_TZ = 'Africa/Johannesburg';
 
+/** Venue zone carried on the API venue window (`timeZone`), else SAST for legacy payloads. */
+export function venueTimeZone(venueWindow) {
+  const tz = venueWindow?.timeZone;
+  if (!tz || typeof tz !== 'string') return SAST_TZ;
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone: tz });
+    return tz;
+  } catch {
+    return SAST_TZ;
+  }
+}
+
+/** Short label like "SAST" or "GMT+1" when the venue zone differs from the viewer's; else null. */
+export function venueZoneLabelIfDifferent(venueWindow, now = new Date()) {
+  const tz = venueTimeZone(venueWindow);
+  let viewerTz = null;
+  try {
+    viewerTz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  } catch {
+    viewerTz = null;
+  }
+  const offsetOf = (zone) => {
+    const p = Object.fromEntries(
+      new Intl.DateTimeFormat('en-US', {
+        timeZone: zone,
+        hourCycle: 'h23',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+      })
+        .formatToParts(now)
+        .map((x) => [x.type, x.value]),
+    );
+    return Date.UTC(+p.year, +p.month - 1, +p.day, +p.hour % 24, +p.minute) - Math.floor(now.getTime() / 60000) * 60000;
+  };
+  if (viewerTz && (viewerTz === tz || offsetOf(viewerTz) === offsetOf(tz))) return null;
+  if (tz === SAST_TZ) return 'SAST';
+  const part = new Intl.DateTimeFormat('en-US', { timeZone: tz, timeZoneName: 'short' })
+    .formatToParts(now)
+    .find((x) => x.type === 'timeZoneName');
+  return part?.value || tz;
+}
+
 function parseClock(value) {
   if (!value || typeof value !== 'string') return null;
   const [h, m] = value.split(':').map((x) => parseInt(x, 10));
@@ -17,10 +62,10 @@ function minutesToHHmm(totalMinutes) {
   return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
 }
 
-export function currentClockSast(refDate = new Date()) {
+export function currentClockSast(refDate = new Date(), tz = SAST_TZ) {
   const d = refDate instanceof Date ? refDate : new Date(refDate);
   const parts = new Intl.DateTimeFormat('en-GB', {
-    timeZone: SAST_TZ,
+    timeZone: tz,
     hour: '2-digit',
     minute: '2-digit',
     hour12: false,
@@ -32,12 +77,12 @@ export function currentClockSast(refDate = new Date()) {
 }
 
 export function nowMinutesSast(venueWindow, now = new Date()) {
-  const nowClock = currentClockSast(now);
+  const nowClock = currentClockSast(now, venueTimeZone(venueWindow));
   if (!nowClock || !venueWindow) return null;
   return toServiceMinutes(nowClock, venueWindow);
 }
 
-/** True when the slot start time is strictly before the current SAST minute. */
+/** True when the slot start time is strictly before the current venue-local minute. */
 export function isStartTimeInPast(startTime, venueWindow, now = new Date()) {
   const nowM = nowMinutesSast(venueWindow, now);
   const startM = toServiceMinutes(startTime, venueWindow);

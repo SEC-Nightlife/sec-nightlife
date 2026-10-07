@@ -6,6 +6,9 @@ import { logger } from '../lib/logger.js';
 import { authenticateToken, optionalAuth } from '../middleware/auth.js';
 import { createInAppNotification } from '../lib/inAppNotifications.js';
 import { normalizeUsername } from '../lib/username.js';
+import { normalizeCountryCode, resolveTimeZone, zoneOf } from '../lib/timezone.js';
+import { syncVenueLocaleToEvents } from '../lib/venueLocale.js';
+import { resolveFeedScope, scopeWhere } from '../lib/feedScope.js';
 
 /** Keep legacy user_profiles.followed_venues in sync for older clients. */
 async function syncProfileFollowedVenues(userId, venueId, following) {
@@ -89,6 +92,8 @@ function formatVenueListRow(v, stats, followerCount) {
     address: v.address,
     suburb: v.suburb,
     province: v.province,
+    country_code: v.countryCode ?? null,
+    timezone: zoneOf(v),
     latitude: v.latitude,
     longitude: v.longitude,
     is_verified: v.isVerified,
@@ -110,6 +115,12 @@ const venueCreateSchema = z.object({
   address: z.string().optional().nullable(),
   suburb: z.string().optional().nullable(),
   province: z.string().optional().nullable(),
+  country_code: z
+    .string()
+    .trim()
+    .regex(/^[A-Za-z]{2}$/)
+    .optional()
+    .nullable(),
   latitude: z.number().optional().nullable(),
   longitude: z.number().optional().nullable(),
   bio: z.string().optional().nullable(),
@@ -127,7 +138,14 @@ router.get('/', optionalAuth, async (req, res, next) => {
   try {
     const { city, compliance_status, limit = 50 } = req.query;
     const where = { deletedAt: null };
-    if (city) where.city = String(city);
+    if (city) where.city = { equals: String(city), mode: 'insensitive' };
+    const countryCode = normalizeCountryCode(req.query.country_code || req.query.country);
+    if (countryCode) where.countryCode = countryCode;
+    if (!req.query.id && !req.query.owner_user_id) {
+      const scoped = scopeWhere(await resolveFeedScope(req));
+      if (scoped.city && where.city) delete scoped.city;
+      Object.assign(where, scoped);
+    }
     if (compliance_status) where.complianceStatus = compliance_status;
 
     const venues = await prisma.venue.findMany({
@@ -151,7 +169,14 @@ router.get('/filter', optionalAuth, async (req, res, next) => {
   try {
     const { city, id, owner_user_id, compliance_status, venue_type, sort, limit = 50 } = req.query;
     const where = { deletedAt: null };
-    if (city) where.city = String(city);
+    if (city) where.city = { equals: String(city), mode: 'insensitive' };
+    const countryCode = normalizeCountryCode(req.query.country_code || req.query.country);
+    if (countryCode) where.countryCode = countryCode;
+    if (!req.query.id && !req.query.owner_user_id) {
+      const scoped = scopeWhere(await resolveFeedScope(req));
+      if (scoped.city && where.city) delete scoped.city;
+      Object.assign(where, scoped);
+    }
     if (id) where.id = String(id);
     if (owner_user_id) where.ownerUserId = String(owner_user_id);
     if (compliance_status) where.complianceStatus = compliance_status;
@@ -330,6 +355,8 @@ router.get('/:id', optionalAuth, async (req, res, next) => {
       address: venue.address,
       suburb: venue.suburb,
       province: venue.province,
+      country_code: venue.countryCode ?? null,
+      timezone: zoneOf(venue),
       latitude: venue.latitude,
       longitude: venue.longitude,
       bio: venue.bio,
@@ -368,6 +395,7 @@ router.post('/', authenticateToken, async (req, res, next) => {
     const data = parsed.data;
 
     await ensureUserRole(req.userId, 'business');
+    const createCountry = normalizeCountryCode(data.country_code) || 'ZA';
     const venue = await prisma.venue.create({
       data: {
         ownerUserId: req.userId,
@@ -377,6 +405,12 @@ router.post('/', authenticateToken, async (req, res, next) => {
         address: data.address,
         suburb: data.suburb,
         province: data.province,
+        countryCode: createCountry,
+        timezone: resolveTimeZone({
+          latitude: data.latitude,
+          longitude: data.longitude,
+          countryCode: createCountry,
+        }),
         latitude: data.latitude,
         longitude: data.longitude,
         bio: data.bio,
@@ -400,6 +434,8 @@ router.post('/', authenticateToken, async (req, res, next) => {
       address: venue.address,
       suburb: venue.suburb,
       province: venue.province,
+      country_code: venue.countryCode ?? null,
+      timezone: zoneOf(venue),
       latitude: venue.latitude,
       longitude: venue.longitude,
       compliance_status: venue.complianceStatus,
@@ -450,6 +486,17 @@ router.patch('/:id', authenticateToken, async (req, res, next) => {
     if (data.province != null) updates.province = data.province;
     if (data.latitude != null) updates.latitude = data.latitude;
     if (data.longitude != null) updates.longitude = data.longitude;
+    if (data.country_code != null) {
+      const cc = normalizeCountryCode(data.country_code);
+      if (cc) updates.countryCode = cc;
+    }
+    if (data.latitude != null || data.longitude != null || updates.countryCode) {
+      updates.timezone = resolveTimeZone({
+        latitude: updates.latitude ?? venue.latitude,
+        longitude: updates.longitude ?? venue.longitude,
+        countryCode: updates.countryCode ?? venue.countryCode,
+      });
+    }
     if (data.bio != null) updates.bio = data.bio;
     if (data.phone != null) updates.phone = data.phone;
     if (data.email != null) updates.email = data.email;
@@ -485,6 +532,9 @@ router.patch('/:id', authenticateToken, async (req, res, next) => {
       where: { id: venue.id },
       data: updates
     });
+    if (updates.timezone || updates.countryCode) {
+      await syncVenueLocaleToEvents(updated);
+    }
 
     if (extraData.accepts_day_bookings === true) {
       await ensureDayCustomVenueTable(venue.id);
@@ -498,6 +548,8 @@ router.patch('/:id', authenticateToken, async (req, res, next) => {
       address: updated.address,
       suburb: updated.suburb,
       province: updated.province,
+      country_code: updated.countryCode ?? null,
+      timezone: zoneOf(updated),
       latitude: updated.latitude,
       longitude: updated.longitude,
       cover_image_url: updated.coverImageUrl,

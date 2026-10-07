@@ -6,6 +6,15 @@ import {
 } from './serviceSchedule.js';
 import { windowEndInstant, parseWindowInstant } from './dayBookingWindows.js';
 import { externalListingEndsAt } from './externalListingSchedule.js';
+import {
+  DEFAULT_TIMEZONE,
+  calendarParts,
+  zoneAbbreviation,
+  zoneFrom,
+  zoneOfHostedTable,
+  zonedDateTimeToUtc,
+  zonedWallTimeToUtc,
+} from './timezone.js';
 
 const MS_DAY = 24 * 60 * 60 * 1000;
 
@@ -66,12 +75,16 @@ export function generateQrToken() {
   return crypto.randomBytes(24).toString('hex');
 }
 
-/** Assume event ends same calendar day as `date` at 04:00 local if no better signal. */
-export function visibleUntilAfterEventDate(eventDate) {
+/** Assume event ends at 04:00 venue time after `date` if no better signal. */
+export function visibleUntilAfterEventDate(eventDate, tz = DEFAULT_TIMEZONE) {
   const d = eventDate instanceof Date ? eventDate : new Date(eventDate);
-  const end = new Date(d.getTime());
-  end.setUTCHours(4, 0, 0, 0);
-  if (end < d) end.setUTCDate(end.getUTCDate() + 1);
+  const cal = calendarParts(d, tz);
+  if (!cal) return new Date(Date.now() + MS_DAY);
+  let end = zonedWallTimeToUtc(cal.year, cal.month, cal.day, 4, 0, tz);
+  if (end < d) {
+    const next = new Date(Date.UTC(cal.year, cal.month - 1, cal.day + 1));
+    end = zonedWallTimeToUtc(next.getUTCFullYear(), next.getUTCMonth() + 1, next.getUTCDate(), 4, 0, tz);
+  }
   return new Date(end.getTime() + MS_DAY);
 }
 
@@ -89,24 +102,17 @@ export function visibleUntilAfterHostedTable(t) {
     const w = t.windowEndsAt instanceof Date ? t.windowEndsAt : new Date(t.windowEndsAt);
     if (!Number.isNaN(w.getTime())) return w;
   }
-  const d = t.eventDate instanceof Date ? t.eventDate : new Date(t.eventDate);
-  const end = new Date(d.getTime());
-  const parts = String(t.eventTime || '').split(':');
-  const h = parseInt(parts[0], 10);
-  const m = parseInt(parts[1], 10);
-  if (Number.isFinite(h) && Number.isFinite(m)) {
-    end.setUTCHours(h, m || 0, 0, 0);
-  }
-  end.setUTCHours(end.getUTCHours() + 8);
-  return new Date(end.getTime() + MS_DAY);
+  const start = eventStartsAtFromHostedTable(t) || new Date();
+  return new Date(start.getTime() + 8 * 60 * 60 * 1000 + MS_DAY);
 }
 
 export function visibleUntilForVenueTableMember(table, event) {
   const evDate = event?.date ? (event.date instanceof Date ? event.date : new Date(event.date)) : new Date();
-  return visibleUntilAfterEventDate(evDate);
+  return visibleUntilAfterEventDate(evDate, zoneFrom(event, table));
 }
 
 /** Combine day listing service end date + end time; fallback weekly schedule or start date + 24h. */
+/** Combine day listing service end date + end time (venue wall time); fallback weekly schedule. */
 export function dayEndsAtFromVenueTable(table, refDate = new Date()) {
   const fromSchedule = dayEndsAtFromVenueTableSchedule(table, refDate);
   if (fromSchedule) return fromSchedule;
@@ -115,19 +121,12 @@ export function dayEndsAtFromVenueTable(table, refDate = new Date()) {
   if (!endDateRaw) return null;
   const d = endDateRaw instanceof Date ? new Date(endDateRaw) : new Date(endDateRaw);
   if (Number.isNaN(d.getTime())) return null;
-  const end = new Date(d.getTime());
+  const tz = zoneFrom(table);
   const endTime = table.endTime ?? table.end_time;
-  if (endTime && typeof endTime === 'string') {
-    const parts = endTime.split(':');
-    const h = parseInt(parts[0], 10);
-    const m = parseInt(parts[1], 10);
-    if (Number.isFinite(h) && Number.isFinite(m)) {
-      end.setUTCHours(h, m || 0, 0, 0);
-      return end;
-    }
-  }
-  end.setUTCHours(23, 59, 59, 999);
-  return end;
+  const end = typeof endTime === 'string' ? zonedDateTimeToUtc(d, endTime, tz) : null;
+  if (end) return end;
+  const lastMinute = zonedDateTimeToUtc(d, '23:59', tz);
+  return lastMinute ? new Date(lastMinute.getTime() + 59_999) : null;
 }
 
 export function dayStartsAtFromVenueTable(table, refDate = new Date()) {
@@ -138,38 +137,32 @@ export function dayStartsAtFromVenueTable(table, refDate = new Date()) {
   if (!startDateRaw) return null;
   const d = startDateRaw instanceof Date ? new Date(startDateRaw) : new Date(startDateRaw);
   if (Number.isNaN(d.getTime())) return null;
-  const start = new Date(d.getTime());
   const startTime = table.startTime ?? table.start_time;
-  if (startTime && typeof startTime === 'string') {
-    const parts = startTime.split(':');
-    const h = parseInt(parts[0], 10);
-    const m = parseInt(parts[1], 10);
-    if (Number.isFinite(h) && Number.isFinite(m)) {
-      start.setUTCHours(h, m || 0, 0, 0);
-    }
-  }
-  return start;
+  const start = typeof startTime === 'string' ? zonedDateTimeToUtc(d, startTime, zoneFrom(table)) : null;
+  return start || d;
 }
 
 /** Day-booking host/join tickets: event start is the booked window start, not venue default open. */
 export function dayEventStartsAtFromMember(member, table, refDate = new Date()) {
+  const tz = zoneFrom(table);
   if (member?.windowStartTime && member?.bookingDate) {
-    const instant = parseWindowInstant(member.bookingDate, member.windowStartTime);
+    const instant = parseWindowInstant(member.bookingDate, member.windowStartTime, tz);
     if (instant) return instant;
   }
   if (member?.windowStartTime) {
-    const instant = parseWindowInstant(refDate, member.windowStartTime);
+    const instant = parseWindowInstant(refDate, member.windowStartTime, tz);
     if (instant) return instant;
   }
   return dayStartsAtFromVenueTable(table, refDate);
 }
 
-export function formatVisibleUntilSast(date) {
+/** "Sat 11 Oct, 02:00 (SAST)" in the venue's time zone (name kept for existing callers). */
+export function formatVisibleUntilSast(date, tz = DEFAULT_TIMEZONE) {
   if (!date) return null;
   const d = date instanceof Date ? date : new Date(date);
   if (Number.isNaN(d.getTime())) return null;
   const formatted = new Intl.DateTimeFormat('en-ZA', {
-    timeZone: 'Africa/Johannesburg',
+    timeZone: tz,
     weekday: 'short',
     day: 'numeric',
     month: 'short',
@@ -177,7 +170,7 @@ export function formatVisibleUntilSast(date) {
     minute: '2-digit',
     hour12: false,
   }).format(d);
-  return `${formatted} (SAST)`;
+  return `${formatted} (${zoneAbbreviation(d, tz)})`;
 }
 
 /** Ticket QR expiry for day venue table bookings — ends at booked window end (not +24h). */
@@ -187,7 +180,7 @@ export function visibleUntilForDayVenueTable(table, refDate = new Date(), { wind
     if (!Number.isNaN(d.getTime())) return d;
   }
   if (windowStartTime && windowEndTime && bookingDate) {
-    const end = windowEndInstant(bookingDate, windowStartTime, windowEndTime);
+    const end = windowEndInstant(bookingDate, windowStartTime, windowEndTime, zoneFrom(table));
     if (end) return end;
   }
   const schedule = serviceScheduleFromTable(table);
@@ -199,43 +192,35 @@ export function visibleUntilForDayVenueTable(table, refDate = new Date(), { wind
   if (endsAt) return endsAt;
   const startsAt = dayStartsAtFromVenueTable(table, refDate);
   if (startsAt) return new Date(startsAt.getTime() + MS_DAY);
-  return visibleUntilAfterEventDate(new Date());
+  return visibleUntilAfterEventDate(new Date(), zoneFrom(table));
 }
 
-/** When the ticketed experience starts (UTC), for expiry = start + 24h. */
+/**
+ * When the ticketed experience starts, for expiry = start + 24h.
+ * `startTime` is venue wall time in the event's zone (default SAST), not UTC.
+ */
 export function eventStartsAtFromEvent(event) {
   if (!event?.date) return null;
   const d = event.date instanceof Date ? new Date(event.date) : new Date(event.date);
+  if (Number.isNaN(d.getTime())) return null;
   const st = event.startTime ?? event.start_time;
   if (st && typeof st === 'string') {
-    const parts = st.split(':');
-    const h = parseInt(parts[0], 10);
-    const m = parseInt(parts[1], 10);
-    if (Number.isFinite(h) && Number.isFinite(m)) {
-      const x = new Date(d.getTime());
-      x.setUTCHours(h, m || 0, 0, 0);
-      return x;
-    }
+    const instant = zonedDateTimeToUtc(d, st, zoneFrom(event));
+    if (instant) return instant;
   }
   return d;
 }
 
-/** Hosted table calendar + clock (SAST wall time when eventTime is HH:mm). */
+/** Hosted table calendar + clock (venue / listing wall time). */
 export function eventStartsAtFromHostedTable(t) {
   if (!t?.eventDate) return null;
-  if (t.eventTime && /^\d{2}:\d{2}$/.test(String(t.eventTime))) {
-    const instant = parseWindowInstant(t.eventDate, t.eventTime);
+  const d = t.eventDate instanceof Date ? new Date(t.eventDate) : new Date(t.eventDate);
+  if (Number.isNaN(d.getTime())) return null;
+  if (t.eventTime) {
+    const instant = zonedDateTimeToUtc(d, String(t.eventTime), zoneOfHostedTable(t));
     if (instant) return instant;
   }
-  const d = t.eventDate instanceof Date ? new Date(t.eventDate) : new Date(t.eventDate);
-  const start = new Date(d.getTime());
-  const parts = String(t.eventTime || '').split(':');
-  const h = parseInt(parts[0], 10);
-  const m = parseInt(parts[1], 10);
-  if (Number.isFinite(h) && Number.isFinite(m)) {
-    start.setUTCHours(h, m || 0, 0, 0);
-  }
-  return start;
+  return d;
 }
 
 /** Ticket scan + Profile “active” until this instant (legacy: start + 24h). */
@@ -258,7 +243,7 @@ export function eventEndsAtFromEvent(event) {
   }
   const start = eventStartsAtFromEvent(event);
   if (start) return new Date(start.getTime() + MS_DAY);
-  if (event?.date) return visibleUntilAfterEventDate(event.date);
+  if (event?.date) return visibleUntilAfterEventDate(event.date, zoneFrom(event));
   return null;
 }
 

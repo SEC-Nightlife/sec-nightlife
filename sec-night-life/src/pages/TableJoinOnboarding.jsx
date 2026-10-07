@@ -14,8 +14,10 @@ import { Textarea } from '@/components/ui/textarea';
 import { motion, AnimatePresence } from 'framer-motion';
 import { format, parseISO, isToday, isTomorrow } from 'date-fns';
 import RefundPolicyNote from '@/components/legal/RefundPolicyNote';
+import { useMoney } from '@/hooks/useMoney';
 
 export default function TableJoinOnboarding() {
+  const money = useMoney();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [user, setUser] = useState(null);
@@ -204,7 +206,7 @@ export default function TableJoinOnboarding() {
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
             <div className="sec-card" style={{ padding: '16px', textAlign: 'center' }}>
               <p style={{ fontSize: 22, fontWeight: 700, color: 'var(--sec-text-primary)', letterSpacing: '-0.02em' }}>
-                R{table?.min_spend?.toLocaleString()}
+                {money.format(table?.min_spend)}
               </p>
               <p style={{ fontSize: 11, color: 'var(--sec-text-muted)', marginTop: 4, fontWeight: 500, letterSpacing: '0.04em', textTransform: 'uppercase' }}>
                 Table Min Spend
@@ -212,7 +214,7 @@ export default function TableJoinOnboarding() {
             </div>
             <div className="sec-card" style={{ padding: '16px', textAlign: 'center' }}>
               <p style={{ fontSize: 22, fontWeight: 700, color: 'var(--sec-text-primary)', letterSpacing: '-0.02em' }}>
-                R{spendPerPerson.toLocaleString()}
+                {money.format(spendPerPerson)}
               </p>
               <p style={{ fontSize: 11, color: 'var(--sec-text-muted)', marginTop: 4, fontWeight: 500, letterSpacing: '0.04em', textTransform: 'uppercase' }}>
                 Per Person Est.
@@ -303,7 +305,7 @@ export default function TableJoinOnboarding() {
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
               <span style={{ fontSize: 13, color: 'var(--sec-text-muted)' }}>Minimum per person</span>
               <span style={{ fontSize: 18, fontWeight: 700, color: 'var(--sec-text-primary)', letterSpacing: '-0.02em' }}>
-                R{spendPerPerson.toLocaleString()}
+                {money.format(spendPerPerson)}
               </span>
             </div>
 

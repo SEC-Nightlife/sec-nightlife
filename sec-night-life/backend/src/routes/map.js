@@ -2,7 +2,9 @@ import { Router } from 'express';
 import { prisma } from '../lib/prisma.js';
 import { optionalAuth } from '../middleware/auth.js';
 import { parseGeoQuery, distanceKm } from '../lib/geo.js';
-import { nominatimFetch, structuredFromNominatim } from '../lib/nominatim.js';
+import { nominatimFetch, structuredFromNominatim, cityFromNominatim } from '../lib/nominatim.js';
+import { normalizeCountryCode } from '../lib/timezone.js';
+import { resolveFeedScope, scopeWhere, inLocalScope } from '../lib/feedScope.js';
 
 const router = Router();
 
@@ -18,6 +20,7 @@ function mapVenueRow(v) {
     name: v.name,
     city: v.city,
     suburb: v.suburb,
+    country_code: v.countryCode ?? null,
     venue_type: v.venueType,
     address: v.address,
     latitude: v.latitude,
@@ -111,7 +114,8 @@ router.get('/reverse-geocode', optionalAuth, async (req, res, next) => {
       suburb: suburb || '',
       city: city || '',
       province: province || '',
-      country: addr.country_code ? String(addr.country_code).toUpperCase() : 'ZA',
+      country: addr.country_code ? String(addr.country_code).toUpperCase() : null,
+      country_name: addr.country || null,
       latitude: lat,
       longitude: lng,
     });
@@ -125,7 +129,7 @@ router.get('/reverse-geocode', optionalAuth, async (req, res, next) => {
 
 /**
  * Place search for address autocomplete when Google Maps is unavailable.
- * Uses OpenStreetMap Nominatim (ZA-biased).
+ * Uses OpenStreetMap Nominatim; pass `country` (ISO alpha-2) to restrict results.
  */
 router.get('/search-places', optionalAuth, async (req, res, next) => {
   try {
@@ -142,7 +146,8 @@ router.get('/search-places', optionalAuth, async (req, res, next) => {
     url.searchParams.set('format', 'json');
     url.searchParams.set('addressdetails', '1');
     url.searchParams.set('limit', '6');
-    url.searchParams.set('countrycodes', 'za');
+    const country = normalizeCountryCode(req.query.country);
+    if (country) url.searchParams.set('countrycodes', country.toLowerCase());
 
     const upstream = await nominatimFetch(url);
     if (!upstream.ok) {
@@ -162,11 +167,55 @@ router.get('/search-places', optionalAuth, async (req, res, next) => {
   }
 });
 
+/**
+ * City autocomplete fallback (Nominatim) when Google Places is unavailable.
+ * Returns settlements only, optionally restricted to one country.
+ */
+router.get('/search-cities', optionalAuth, async (req, res, next) => {
+  try {
+    const q = String(req.query.q || '').trim();
+    if (q.length < 2) return res.json({ results: [] });
+    if (q.length > 120) return res.status(400).json({ error: 'Query too long' });
+
+    const url = new URL('https://nominatim.openstreetmap.org/search');
+    url.searchParams.set('q', q);
+    url.searchParams.set('format', 'json');
+    url.searchParams.set('addressdetails', '1');
+    url.searchParams.set('limit', '10');
+    url.searchParams.set('featureType', 'settlement');
+    url.searchParams.set('accept-language', 'en');
+    const country = normalizeCountryCode(req.query.country);
+    if (country) url.searchParams.set('countrycodes', country.toLowerCase());
+
+    const upstream = await nominatimFetch(url);
+    if (!upstream.ok) return res.status(502).json({ error: 'City search upstream failed' });
+    const rows = await upstream.json();
+    const seen = new Set();
+    const results = [];
+    for (const item of Array.isArray(rows) ? rows : []) {
+      const c = cityFromNominatim(item);
+      if (!c.city) continue;
+      const key = `${c.city.toLowerCase()}|${(c.region || '').toLowerCase()}|${c.country_code || ''}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      results.push(c);
+      if (results.length >= 8) break;
+    }
+    return res.json({ results });
+  } catch (err) {
+    if (err?.name === 'AbortError') return res.status(504).json({ error: 'City search timed out' });
+    next(err);
+  }
+});
+
 /** Geo-filtered map pins for venues, events, and open tables. */
 router.get('/pins', optionalAuth, async (req, res, next) => {
   try {
     const geo = parseGeoQuery(req.query);
-    const scopeAll = req.query.scope === 'all' || !geo;
+    const feed = await resolveFeedScope(req);
+    const scopeAll = feed ? feed.scope === 'worldwide' : req.query.scope === 'all' || !geo;
+    const venueScope = feed ? scopeWhere(feed) : {};
+    const eventScope = feed ? scopeWhere(feed, { geoRelation: 'venue' }) : {};
     const now = new Date();
     const cap = 200;
 
@@ -176,16 +225,17 @@ router.get('/pins', optionalAuth, async (req, res, next) => {
           deletedAt: null,
           latitude: { not: null },
           longitude: { not: null },
+          ...venueScope,
         },
         orderBy: { rating: 'desc' },
         take: cap,
       }),
       prisma.event.findMany({
-        where: { deletedAt: null, status: 'published', endsAt: { gte: now } },
+        where: { deletedAt: null, status: 'published', endsAt: { gte: now }, ...eventScope },
         orderBy: { date: 'asc' },
         take: cap,
         include: {
-          venue: { select: { id: true, latitude: true, longitude: true, city: true, name: true } },
+          venue: { select: { id: true, latitude: true, longitude: true, city: true, name: true, countryCode: true } },
         },
       }),
       prisma.table.findMany({
@@ -196,7 +246,7 @@ router.get('/pins', optionalAuth, async (req, res, next) => {
         orderBy: { createdAt: 'desc' },
         take: 100,
         include: {
-          venue: { select: { latitude: true, longitude: true } },
+          venue: { select: { latitude: true, longitude: true, city: true, countryCode: true } },
         },
       }),
     ]);
@@ -205,7 +255,18 @@ router.get('/pins', optionalAuth, async (req, res, next) => {
     let events = eventRows;
     let tables = tableRows;
 
-    if (!scopeAll && geo) {
+    if (feed && feed.scope !== 'worldwide') {
+      if (feed.countryCode) {
+        tables = tables.filter((t) => !t.venue?.countryCode || t.venue.countryCode === feed.countryCode);
+      }
+      if (feed.scope === 'local') {
+        venues = venues.filter((v) => inLocalScope(feed, v));
+        events = events.filter((e) =>
+          inLocalScope(feed, { latitude: e.venue?.latitude, longitude: e.venue?.longitude, city: e.city }),
+        );
+        tables = tables.filter((t) => inLocalScope(feed, t.venue || {}));
+      }
+    } else if (!feed && !scopeAll && geo) {
       venues = venues.filter((v) => inGeoRange(geo, v.latitude, v.longitude));
       events = events.filter((e) => {
         const lat = e.venue?.latitude;
@@ -221,6 +282,7 @@ router.get('/pins', optionalAuth, async (req, res, next) => {
 
     res.json({
       scope: scopeAll ? 'all' : 'nearby',
+      feed_scope: feed?.scope ?? null,
       venues: venues.map(mapVenueRow),
       events: events.map(mapEventRow),
       tables: tables.map(mapTableRow),

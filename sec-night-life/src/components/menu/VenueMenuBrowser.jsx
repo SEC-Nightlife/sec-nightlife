@@ -1,6 +1,7 @@
 import React from 'react';
 import { menuSelectionChargeableTotal } from '@/components/menu/MenuPicker';
 import VenueMenuNavigator from '@/components/menu/VenueMenuNavigator';
+import { useMoney } from '@/hooks/useMoney';
 
 function normalizeItem(item) {
   return {
@@ -23,6 +24,7 @@ export default function VenueMenuBrowser({
   venueLogoUrl,
   hideStickyFooter = true,
 }) {
+  const money = useMoney();
   const normalized = items.map(normalizeItem);
   const chargeableTotal = menuSelectionChargeableTotal(normalized, selected, includedItems);
   const minSpend = Number(minimumSpendZar) || 0;
@@ -76,7 +78,7 @@ export default function VenueMenuBrowser({
           <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, flexWrap: 'wrap', gap: 8 }}>
             <span style={{ color: 'var(--sec-text-muted)' }}>Chargeable menu total</span>
             <span style={{ fontWeight: 700, color: minMet ? 'var(--sec-success)' : 'var(--sec-text-primary)' }}>
-              R{chargeableTotal.toFixed(0)} / R{minSpend.toFixed(0)} min
+              {money.format(chargeableTotal)} / {money.format(minSpend)} min
             </span>
           </div>
           {!minMet && (

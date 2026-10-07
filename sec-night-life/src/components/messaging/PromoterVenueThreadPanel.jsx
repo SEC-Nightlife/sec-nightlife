@@ -118,7 +118,7 @@ export default function PromoterVenueThreadPanel({
                   className="text-xs text-[var(--sec-accent)] underline break-all"
                 >
                   {a.title}
-                  {a.date ? ` · ${new Date(a.date).toLocaleDateString('en-ZA')}` : ''}
+                  {a.date ? ` · ${new Date(a.date).toLocaleDateString(undefined, { timeZone: 'UTC' })}` : ''}
                 </Link>
               </li>
             ))}

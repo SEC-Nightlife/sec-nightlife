@@ -38,8 +38,7 @@ export function structuredFromNominatim(item) {
     addr.county ||
     '';
   const province = addr.state || addr.region || '';
-  const countryRaw = addr.country_code || 'za';
-  const country = String(countryRaw).toUpperCase() === 'ZA' ? 'ZA' : String(countryRaw).toUpperCase();
+  const country = addr.country_code ? String(addr.country_code).toUpperCase() : null;
   const street = [addr.house_number, addr.road].filter(Boolean).join(' ').trim() || formattedAddress;
 
   return {
@@ -49,6 +48,32 @@ export function structuredFromNominatim(item) {
     city,
     province,
     country,
+    latitude: Number.isFinite(lat) ? lat : null,
+    longitude: Number.isFinite(lng) ? lng : null,
+  };
+}
+
+/** City-level result for the country/city picker fallback. */
+export function cityFromNominatim(item) {
+  const addr = item?.address || {};
+  const lat = Number(item?.lat);
+  const lng = Number(item?.lon);
+  const city =
+    addr.city ||
+    addr.town ||
+    addr.village ||
+    addr.municipality ||
+    addr.hamlet ||
+    (typeof item?.name === 'string' ? item.name : '') ||
+    '';
+  const region = addr.state || addr.province || addr.region || addr.county || '';
+  const countryCode = addr.country_code ? String(addr.country_code).toUpperCase() : null;
+  return {
+    city: String(city).trim(),
+    region: String(region).trim() || null,
+    country_code: countryCode,
+    country_name: addr.country || null,
+    label: [city, region, addr.country].filter(Boolean).join(', '),
     latitude: Number.isFinite(lat) ? lat : null,
     longitude: Number.isFinite(lng) ? lng : null,
   };

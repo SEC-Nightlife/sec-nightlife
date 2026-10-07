@@ -530,6 +530,10 @@ model UserProfile {
   username                  String?
   bio                       String?
   city                      String?
+  /// ISO 3166-1 alpha-2 (e.g. ZA, GB, US).
+  countryCode               String?   @map("country_code")
+  /// State / province / region name.
+  region                    String?
   latitude                  Float?
   longitude                 Float?
   locationLabel             String?   @map("location_label")
@@ -574,6 +578,7 @@ model UserProfile {
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  @@index([countryCode, city])
   @@map("user_profiles")
 }
 
@@ -612,6 +617,7 @@ model VendorBusiness {
   @@index([userId])
   @@index([category])
   @@index([city])
+  @@index([country, city])
   @@index([isPublished])
   @@map("vendor_businesses")
 }
@@ -726,6 +732,10 @@ model Venue {
   address                     String?
   suburb                      String?
   province                    String?
+  /// ISO 3166-1 alpha-2.
+  countryCode                 String?               @map("country_code")
+  /// IANA time zone (e.g. Africa/Johannesburg); derived from coordinates.
+  timezone                    String?
   latitude                    Float?
   longitude                   Float?
   bio                         String?
@@ -791,6 +801,7 @@ model Venue {
 
   @@index([ownerUserId])
   @@index([city])
+  @@index([countryCode, city])
   @@index([complianceStatus])
   @@map("venues")
 }
@@ -1003,6 +1014,10 @@ model Event {
   description       String?
   date              DateTime
   city              String
+  /// Inherited from the venue.
+  countryCode       String?     @map("country_code")
+  /// IANA time zone inherited from the venue.
+  timezone          String?
   locationAddress   String?     @map("location_address")
   locationCity      String?     @map("location_city")
   locationSuburb    String?     @map("location_suburb")
@@ -1056,6 +1071,7 @@ model Event {
   @@index([endsAt])
   @@index([status])
   @@index([city])
+  @@index([countryCode, city])
   @@index([boosted, boostExpiresAt])
   @@index([deletedAt, status, endsAt])
   @@map("events")
@@ -1328,6 +1344,7 @@ model Promotion {
   imageUrl           String?         @map("image_url")
   imagePublicId      String?         @map("image_public_id")
   targetCity         String?         @map("target_city")
+  targetCountryCode  String?         @map("target_country_code")
   status             PromotionStatus @default(DRAFT)
   startAt            DateTime        @map("start_at")
   endAt              DateTime        @map("end_at")
@@ -1350,6 +1367,7 @@ model Promotion {
   @@index([status])
   @@index([eventId])
   @@index([targetCity])
+  @@index([targetCountryCode, targetCity])
   @@index([boosted, boostExpiresAt])
   @@index([deletedAt, status, endAt])
   @@map("promotions")
@@ -1952,6 +1970,11 @@ model HostedTable {
   eventId          String?           @map("event_id")
   venueName        String            @map("venue_name")
   venueAddress     String?           @map("venue_address")
+  /// Location for own-place listings (event/venue tables inherit from the event or venue).
+  city             String?
+  countryCode      String?           @map("country_code")
+  latitude         Float?
+  longitude        Float?
   eventDate                   DateTime                @map("event_date")
   eventTime                   String                  @map("event_time")
   /// Optional end calendar date for EXTERNAL_VENUE own-place listings (defaults to eventDate).
@@ -2002,6 +2025,7 @@ model HostedTable {
   @@index([venueTableId])
   @@index([windowEndsAt])
   @@index([status, spotsRemaining, eventDate])
+  @@index([countryCode, city])
   @@map("hosted_tables")
 }
 

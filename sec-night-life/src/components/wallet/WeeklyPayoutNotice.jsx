@@ -2,10 +2,9 @@ import React from 'react';
 import { CalendarClock } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 import { PAYOUT_MIN_ZAR, nextPayoutDate as fallbackNextPayoutDate } from '@/lib/payoutSchedule';
+import { formatZar as formatRand } from '@/lib/money';
 
-function formatZar(n) {
-  return `R ${Number(n || 0).toFixed(2)}`;
-}
+const formatZar = (n) => formatRand(n, { cents: true });
 
 /**
  * Weekly batched payout explainer for Sec Wallet (users/hosts) and venue wallets.

@@ -1,14 +1,12 @@
 import { jsPDF } from 'jspdf';
 import { autoTable } from 'jspdf-autotable';
+import { formatZar as formatRand } from '@/lib/money';
 
 const GOLD = [201, 162, 39];
 const DARK = [28, 28, 28];
 const MUTED = [85, 85, 85];
 
-function formatZar(n) {
-  const x = Math.round((Number(n) || 0) * 100) / 100;
-  return `R${x.toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-}
+const formatZar = (n) => formatRand(Math.round((Number(n) || 0) * 100) / 100, { cents: true });
 
 function cell(value) {
   const s = value == null ? '' : String(value).trim();

@@ -34,17 +34,30 @@ const WEEKDAY_LABELS = {
   saturday: 'Sat',
 };
 
-export function weekdayKeySast(date = new Date()) {
+const DEFAULT_TZ = 'Africa/Johannesburg';
+
+/** Venue IANA zone from API payloads (venueWindow / venue / row), SAST for legacy rows. */
+export function tableTimeZone(row) {
+  return (
+    row?.venueWindow?.timeZone ||
+    row?.venue?.timezone ||
+    row?.timezone ||
+    row?.venueTable?.venue?.timezone ||
+    DEFAULT_TZ
+  );
+}
+
+export function weekdayKeySast(date = new Date(), tz = DEFAULT_TZ) {
   const label = new Intl.DateTimeFormat('en-US', {
-    timeZone: 'Africa/Johannesburg',
+    timeZone: tz,
     weekday: 'long',
   }).format(date instanceof Date ? date : new Date(date));
   return String(label || '').toLowerCase();
 }
 
-function formatYmdSast(date = new Date()) {
+function formatYmdSast(date = new Date(), tz = DEFAULT_TZ) {
   return new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Africa/Johannesburg',
+    timeZone: tz,
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',
@@ -53,13 +66,14 @@ function formatYmdSast(date = new Date()) {
 
 export function isVenueMembershipForToday(member, now = new Date()) {
   if (!member) return false;
-  const todayYmd = formatYmdSast(now);
+  const tz = tableTimeZone(member);
+  const todayYmd = formatYmdSast(now, tz);
   const bookingDate = member.bookingDate || member.booking_date;
   const paidAt = member.paidAt || member.paid_at;
   const joinedAt = member.joinedAt || member.joined_at;
-  if (bookingDate) return formatYmdSast(bookingDate) === todayYmd;
-  if (paidAt) return formatYmdSast(paidAt) === todayYmd;
-  if (joinedAt) return formatYmdSast(joinedAt) === todayYmd;
+  if (bookingDate) return formatYmdSast(bookingDate, tz) === todayYmd;
+  if (paidAt) return formatYmdSast(paidAt, tz) === todayYmd;
+  if (joinedAt) return formatYmdSast(joinedAt, tz) === todayYmd;
   return false;
 }
 
@@ -93,17 +107,18 @@ function normalizeServiceSchedule(table) {
 }
 
 export function venueWindowFromSchedule(table, refDate = new Date()) {
+  const timeZone = tableTimeZone(table);
   const schedule = normalizeServiceSchedule(table);
   if (!schedule.length) {
     const startTime = table?.startTime || table?.start_time;
     const endTime = table?.endTime || table?.end_time;
-    if (startTime && endTime) return { startTime: String(startTime), endTime: String(endTime) };
+    if (startTime && endTime) return { startTime: String(startTime), endTime: String(endTime), timeZone };
     return null;
   }
-  const dayKey = weekdayKeySast(refDate);
+  const dayKey = weekdayKeySast(refDate, timeZone);
   const entry = schedule.find((e) => e.day === dayKey);
   if (!entry) return null;
-  return { startTime: entry.startTime, endTime: entry.endTime };
+  return { startTime: entry.startTime, endTime: entry.endTime, timeZone };
 }
 
 export function formatOpenDaysSummary(table) {
@@ -177,7 +192,7 @@ export function resolveDayBookingContext(venueTable, { tierSlot = null, tierData
   }
 
   const venueWindow = venueTable?.venueWindow || venueWindowFromSchedule(venueTable, refDate);
-  const dayKey = weekdayKeySast(refDate);
+  const dayKey = weekdayKeySast(refDate, venueWindow?.timeZone || tableTimeZone(venueTable));
   const serviceDay = venueTable?.serviceDay || {
     key: dayKey,
     label: WEEKDAY_FULL[dayKey] || dayKey,

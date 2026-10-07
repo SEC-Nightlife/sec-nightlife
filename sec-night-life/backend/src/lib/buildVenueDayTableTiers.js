@@ -11,6 +11,7 @@ import {
   windowsOverlap,
 } from './dayBookingWindows.js';
 import { expireDayTableSessions } from './releaseDayTableSession.js';
+import { zoneFrom } from './timezone.js';
 
 /**
  * Build grouped table tier payloads for day bookings (VenueBook).
@@ -18,7 +19,6 @@ import { expireDayTableSessions } from './releaseDayTableSession.js';
  * @param {{ windowStart?: string, windowEnd?: string, bookingDate?: Date }} [options]
  */
 export async function buildVenueDayTableTiers(venueId, options = {}) {
-  const bookingDate = normalizeBookingDateSast(options.bookingDate || new Date());
   const userWindowStart = options.windowStart || null;
   const userWindowEnd = options.windowEnd || null;
 
@@ -28,9 +28,11 @@ export async function buildVenueDayTableTiers(venueId, options = {}) {
 
   const venue = await prisma.venue.findFirst({
     where: { id: venueId, deletedAt: null },
-    select: { id: true, name: true, acceptsDayBookings: true, maxBookingDurationHours: true },
+    select: { id: true, name: true, acceptsDayBookings: true, maxBookingDurationHours: true, timezone: true },
   });
   if (!venue) return null;
+  const tz = zoneFrom(venue);
+  const bookingDate = normalizeBookingDateSast(options.bookingDate || new Date(), tz);
 
   const { repairLegacyDayVenueTables } = await import('./syncDayVenueTables.js');
   await repairLegacyDayVenueTables(venueId);
@@ -45,6 +47,8 @@ export async function buildVenueDayTableTiers(venueId, options = {}) {
     },
     orderBy: { hostingTierKey: 'asc' },
   });
+  // VenueTable has no zone column; tag rows so schedule helpers use the venue's zone.
+  for (const vt of venueTables) vt.timezone = tz;
 
   const bookableToday = venueTables.filter((vt) => isVenueTableBookableToday(vt, bookingDate));
   const venueWindow = venueWindowFromTables(bookableToday, bookingDate);
@@ -74,7 +78,7 @@ export async function buildVenueDayTableTiers(venueId, options = {}) {
     const tier = tierMap.get(tierKey);
     const occupancy = await buildOccupancyForSlot(vt, bookingDate);
     const slotWindow = venueWindowForDate(vt, bookingDate) || venueWindow;
-    const availableGaps = slotWindow ? buildAvailableGaps(slotWindow, occupancy, { now: new Date() }) : [];
+    const availableGaps = slotWindow ? buildAvailableGaps(slotWindow, occupancy, { now: new Date(), tz }) : [];
 
     let canHost = availableGaps.length > 0;
     let joinableSessions = occupancy.filter((o) => o.spotsRemaining > 0);

@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { MapPin, Star, Users } from 'lucide-react';
 import { createPageUrl } from '@/utils';
 import { hostedListingDetailsPath } from '@/lib/hostedListingUrl';
+import { useMoney } from '@/hooks/useMoney';
 
 export default function HostedTableCard({
   table,
@@ -11,6 +12,7 @@ export default function HostedTableCard({
   layout = 'card',
   footer = null,
 }) {
+  const money = useMoney();
   const title = table?.tableName || table?.venueName || 'Hosted table';
   const location = table?.displayLocation || table?.eventLocation?.displayLabel || table?.event?.city || table?.venueName;
   const hostName = table?.host?.username || table?.host?.fullName || 'Host';
@@ -24,7 +26,7 @@ export default function HostedTableCard({
   const joinLabel = table?.isPublic === false ? 'Request to join' : 'Join table';
   const joinFee =
     table?.hasJoiningFee && Number(table?.joiningFee || 0) > 0
-      ? ` · R${Number(table.joiningFee).toFixed(0)} to join`
+      ? ` · ${money.format(table.joiningFee)} to join`
       : ' · Free join';
 
   const isPageLayout = layout === 'page';

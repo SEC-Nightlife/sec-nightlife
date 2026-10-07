@@ -9,6 +9,7 @@ import {
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { SERVICE_FEE_LABEL, serviceFeeForSubtotal, totalWithServiceFee } from '@/lib/serviceFee';
+import ChargedInZarNote from '@/components/checkout/ChargedInZarNote';
 
 /**
  * Ask whether to add venue menu items before joining a hosted table.
@@ -162,6 +163,7 @@ export default function HostedTableJoinWizard({
                 <span>R{payTotal.toFixed(2)}</span>
               </div>
             )}
+            <ChargedInZarNote amountZar={payTotal} style={{ textAlign: 'right' }} />
             <Button
               className="w-full h-12 sec-btn-accent font-semibold"
               disabled={isProcessing}

@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { resolveFeedScope, scopeWhere } from '../lib/feedScope.js';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
 import { authenticateToken, optionalAuth } from '../middleware/auth.js';
@@ -199,17 +200,22 @@ function parseListQuery(q) {
 router.get('/', optionalAuth, async (req, res, next) => {
   try {
     const { search, category, city, country, sort, minRating, page, limit } = parseListQuery(req.query);
+    const feed = await resolveFeedScope(req);
+    const scoped = scopeWhere(feed, { countryField: 'country', supportsGeo: false });
+    const scopeCountry = country || scoped.country || null;
+    const scopeCity = city || (scoped.city ? feed.city : '');
 
     const baseWhere = {
       deletedAt: null,
       isPublished: true,
+      unpublishedByAdminAt: null,
       ...activeVendorOwnerWhere,
-      ...(country ? { country } : {}),
+      ...(scopeCountry ? { country: scopeCountry } : {}),
       ...(category ? { category } : {}),
     };
     const where = {
       ...baseWhere,
-      ...(city ? { city: { equals: city, mode: 'insensitive' } } : {}),
+      ...(scopeCity ? { city: { equals: scopeCity, mode: 'insensitive' } } : {}),
       ...(search
         ? {
             OR: [

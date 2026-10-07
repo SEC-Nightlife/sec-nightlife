@@ -4,6 +4,7 @@ import { isBoostActiveRow } from './feedBoost.js';
 import { externalListingEndsAt } from './externalListingSchedule.js';
 import { cacheGetJson, cacheSetJson } from './redis.js';
 import { getBlockedUserIdsForViewer } from './blockedUsers.js';
+import { resolveFeedScope, scopeWhere, inLocalScope, feedScopeCacheKey, widerScope } from './feedScope.js';
 
 function hashString(input) {
   let h = 2166136261;
@@ -73,8 +74,10 @@ export async function buildHomeFeedPage(req) {
     (typeof req.query.sessionId === 'string' && req.query.sessionId.trim()) ||
     'anon-session';
 
-  const cacheKey =
-    !geo
+  const requestedFeed = await resolveFeedScope(req);
+  const cacheKey = requestedFeed
+    ? `home:feed:v5:${req.userId || 'anon'}:${feedScopeCacheKey(requestedFeed)}:${cursor}:${limit}:${sessionId.slice(0, 24)}`
+    : !geo
       ? `home:feed:v4:${req.userId || 'anon'}:${scopeAll ? 'all' : overrideCity || 'none'}:${cursor}:${limit}:${sessionId.slice(0, 24)}`
       : null;
   if (cacheKey) {
@@ -85,7 +88,9 @@ export async function buildHomeFeedPage(req) {
   const blockedUserIds = await getBlockedUserIdsForViewer(req.userId);
 
   let city = '';
-  if (scopeAll && !geo) {
+  if (requestedFeed) {
+    city = '';
+  } else if (scopeAll && !geo) {
     city = '';
   } else if (!geo) {
     city = overrideCity;
@@ -109,22 +114,14 @@ export async function buildHomeFeedPage(req) {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
-  const [promotionRows, eventRows, venueRows, followedRows, communityRows] = await Promise.all([
+  const loadRows = ({ promotionScope, eventScope, venueScope, communityScope }) => Promise.all([
     prisma.promotion.findMany({
       where: {
         deletedAt: null,
         status: 'ACTIVE',
         startAt: { lte: now },
         endAt: { gt: now },
-        ...(city
-          ? {
-              OR: [
-                { targetCity: null },
-                { targetCity: { equals: city, mode: 'insensitive' } },
-                { venue: { city: { equals: city, mode: 'insensitive' } } },
-              ],
-            }
-          : {}),
+        ...promotionScope,
       },
       take: 60,
       orderBy: [{ boosted: 'desc' }, { createdAt: 'desc' }],
@@ -134,19 +131,16 @@ export async function buildHomeFeedPage(req) {
       },
     }),
     prisma.event.findMany({
-      where: { deletedAt: null, status: 'published', endsAt: { gte: now } },
+      where: { deletedAt: null, status: 'published', endsAt: { gte: now }, ...eventScope },
       orderBy: [{ boosted: 'desc' }, { date: 'asc' }],
       take: 80,
-      include: { venue: { select: { latitude: true, longitude: true } } },
+      include: { venue: { select: { latitude: true, longitude: true, city: true } } },
     }),
     prisma.venue.findMany({
-      where: { deletedAt: null, ...(city ? { city: { equals: city, mode: 'insensitive' } } : {}) },
+      where: { deletedAt: null, ...venueScope },
       orderBy: { rating: 'desc' },
       take: 80,
     }),
-    req.userId
-      ? prisma.venueFollow.findMany({ where: { userId: req.userId }, select: { venueId: true } })
-      : Promise.resolve([]),
     prisma.hostedTable.findMany({
       where: {
         status: 'ACTIVE',
@@ -159,6 +153,7 @@ export async function buildHomeFeedPage(req) {
           { windowEndsAt: { gt: now } },
           { windowEndsAt: null, eventDate: { gte: today } },
         ],
+        ...communityScope,
       },
       take: 40,
       orderBy: [{ boostExpiresAt: 'desc' }, { eventDate: 'asc' }],
@@ -179,28 +174,87 @@ export async function buildHomeFeedPage(req) {
         spotsRemaining: true,
         hasJoiningFee: true,
         joiningFee: true,
+        city: true,
+        latitude: true,
+        longitude: true,
       },
     }),
   ]);
 
+  const scopesFor = (feed) => {
+    const venueScope = scopeWhere(feed);
+    const relation = Object.keys(venueScope).length ? { venue: venueScope } : {};
+    return {
+      promotionScope: relation,
+      eventScope: relation,
+      venueScope,
+      communityScope: scopeWhere(feed),
+    };
+  };
+  const legacyScopes = {
+    promotionScope: city
+      ? {
+          OR: [
+            { targetCity: null },
+            { targetCity: { equals: city, mode: 'insensitive' } },
+            { venue: { city: { equals: city, mode: 'insensitive' } } },
+          ],
+        }
+      : {},
+    eventScope: {},
+    venueScope: city ? { city: { equals: city, mode: 'insensitive' } } : {},
+    communityScope: {},
+  };
+
+  const refine = (feed, rows) => {
+    const [p, e, v, c] = rows;
+    if (!feed?.geo) return rows;
+    return [
+      p.filter((x) => inLocalScope(feed, x.venue || {})),
+      e.filter((x) => inLocalScope(feed, { ...(x.venue || {}), city: x.city })),
+      v.filter((x) => inLocalScope(feed, x)),
+      c.filter((x) => inLocalScope(feed, x)),
+    ];
+  };
+
+  let effectiveFeed = requestedFeed;
+  let rows;
+  if (requestedFeed) {
+    rows = refine(requestedFeed, await loadRows(scopesFor(requestedFeed)));
+    // Explicit widening (local → national → worldwide) when the chosen scope has nothing to show.
+    while (rows.every((list) => list.length === 0)) {
+      const wider = widerScope(effectiveFeed);
+      if (!wider) break;
+      effectiveFeed = wider;
+      rows = await loadRows(scopesFor(wider));
+    }
+  } else {
+    rows = await loadRows(legacyScopes);
+  }
+  const [promotionRows, eventRows, venueRows, communityRows] = rows;
+  const followedRows = req.userId
+    ? await prisma.venueFollow.findMany({ where: { userId: req.userId }, select: { venueId: true } })
+    : [];
+
   const followedSet = new Set(followedRows.map((r) => r.venueId));
 
-  const filteredPromotions = geo
+  const legacyGeo = requestedFeed ? null : geo;
+  const filteredPromotions = legacyGeo
     ? promotionRows.filter((p) => inGeoRange(p.venue?.latitude, p.venue?.longitude))
     : promotionRows;
-  const filteredEvents = geo
+  const filteredEvents = legacyGeo
     ? eventRows.filter((e) => inGeoRange(e.venue?.latitude, e.venue?.longitude))
     : eventRows;
-  const filteredVenues = geo
+  const filteredVenues = legacyGeo
     ? venueRows.filter((v) => inGeoRange(v.latitude, v.longitude))
     : venueRows;
 
   const geoVenueCount = filteredVenues.length;
-  const useGeoScope = Boolean(geo && geoVenueCount > 3);
+  const useGeoScope = Boolean(legacyGeo && geoVenueCount > 3);
   const feedPromotions = useGeoScope ? filteredPromotions : promotionRows;
   const feedEvents = useGeoScope ? filteredEvents : eventRows;
   const feedVenues = useGeoScope ? filteredVenues : venueRows;
-  const scopeSeed = useGeoScope ? 'geo' : city || 'all';
+  const scopeSeed = effectiveFeed ? feedScopeCacheKey(effectiveFeed) : useGeoScope ? 'geo' : city || 'all';
 
   const venueIds = feedVenues.map((v) => v.id);
   const [reviewGroups, followerGroups] = venueIds.length
@@ -298,7 +352,8 @@ export async function buildHomeFeedPage(req) {
         .map((s) => s.trim())
         .filter(Boolean);
       const cityGuess =
-        addressBits.length >= 2 ? addressBits[addressBits.length - 2] : addressBits[0] || t.venueName;
+        t.city ||
+        (addressBits.length >= 2 ? addressBits[addressBits.length - 2] : addressBits[0] || t.venueName);
       return {
         kind: 'community_event',
         data: {
@@ -346,7 +401,22 @@ export async function buildHomeFeedPage(req) {
     items: slice,
     nextCursor,
     total: merged.length,
-    feedScope: useGeoScope ? 'local' : geo ? 'nationwide' : city ? 'city' : 'nationwide',
+    feedScope: effectiveFeed
+      ? effectiveFeed.scope
+      : useGeoScope
+        ? 'local'
+        : geo
+          ? 'nationwide'
+          : city
+            ? 'city'
+            : 'nationwide',
+    ...(requestedFeed
+      ? {
+          requestedScope: requestedFeed.scope,
+          widened: effectiveFeed.scope !== requestedFeed.scope,
+          countryCode: requestedFeed.countryCode || null,
+        }
+      : {}),
   };
   if (cacheKey) {
     await cacheSetJson(cacheKey, payload, 25);

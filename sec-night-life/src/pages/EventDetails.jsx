@@ -27,8 +27,10 @@ import { isHostedEventListing } from '@/lib/hostedListingUrl';
 import { parseMaxPerUser } from '@/lib/ticketTierLimits';
 import { getDirectionsActions } from '@/lib/openDirections';
 import { isEventEnded } from '@/lib/eventLifecycle';
+import { useMoney } from '@/hooks/useMoney';
 
 export default function EventDetails() {
+  const money = useMoney();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const isMobile = useIsMobile();
@@ -554,7 +556,7 @@ export default function EventDetails() {
             <div style={{ flex: 1 }}>
               <p style={{ fontSize: 11, color: 'var(--sec-text-muted)', marginBottom: 2, fontWeight: 500 }}>Entrance fee</p>
               <p style={{ fontSize: 15, fontWeight: 700, color: 'var(--sec-text-primary)' }}>
-                {Number(event.entrance_fee_amount) <= 0 ? 'Free' : `R${Number(event.entrance_fee_amount)}`}
+                {Number(event.entrance_fee_amount) <= 0 ? 'Free' : money.format(event.entrance_fee_amount)}
               </p>
             </div>
             <button
@@ -702,7 +704,7 @@ export default function EventDetails() {
                   </div>
                   <div style={{ textAlign: 'right' }}>
                     <p style={{ fontWeight: 700, fontSize: 16, color: 'var(--sec-text-primary)', letterSpacing: '-0.01em' }}>
-                      R{tier.price}
+                      {money.format(tier.price)}
                     </p>
                     {tier.quantity && (
                       <p style={{ fontSize: 11, color: 'var(--sec-text-muted)' }}>
@@ -884,7 +886,7 @@ export default function EventDetails() {
               <div className="sec-bottom-bar__price">
                 <div className="sec-bottom-bar__price-label">From</div>
                 <div className="sec-bottom-bar__price-value">
-                  {lowestTicketPrice <= 0 ? 'Free' : `R${lowestTicketPrice}`}
+                  {lowestTicketPrice <= 0 ? 'Free' : money.format(lowestTicketPrice)}
                 </div>
               </div>
               <div className="sec-bottom-bar__cta" style={{ display: 'flex', gap: 8 }}>
@@ -929,7 +931,7 @@ export default function EventDetails() {
                   {event.has_entrance_fee
                     ? Number(event.entrance_fee_amount || 0) <= 0
                       ? 'Free'
-                      : `R${Number(event.entrance_fee_amount || 0)}`
+                      : money.format(event.entrance_fee_amount || 0)
                     : totalSpotsRemaining}
                 </div>
               </div>
@@ -970,7 +972,7 @@ export default function EventDetails() {
               <div className="sec-bottom-bar__price">
                 <div className="sec-bottom-bar__price-label">From</div>
                 <div className="sec-bottom-bar__price-value">
-                  {lowestTicketPrice <= 0 ? 'Free' : `R${lowestTicketPrice}`}
+                  {lowestTicketPrice <= 0 ? 'Free' : money.format(lowestTicketPrice)}
                 </div>
               </div>
               <div className="sec-bottom-bar__cta">

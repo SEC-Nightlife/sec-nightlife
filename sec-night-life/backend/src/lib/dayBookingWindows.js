@@ -4,9 +4,20 @@ import {
   serviceScheduleFromTable,
   weekdayKeyFromDate,
 } from './serviceSchedule.js';
+import {
+  DEFAULT_TIMEZONE,
+  zoneFrom,
+  zonedParts,
+  zonedWallTimeToUtc,
+  zonedYmd,
+  zonedDateTimeToUtc,
+  calendarParts,
+} from './timezone.js';
 
-const SAST_OFFSET = '+02:00';
-const SAST_TZ = 'Africa/Johannesburg';
+/**
+ * Day-booking times are venue wall-clock times. Every helper takes the venue time zone
+ * (default Africa/Johannesburg, so legacy "...Sast" names keep their behaviour).
+ */
 const MIN_WINDOW_MINUTES = 30;
 const END_BUFFER_MINUTES = 0;
 const SLOT_STEP_MINUTES = 30;
@@ -54,28 +65,21 @@ export function serviceInterval(startTime, endTime, venueWindow) {
   return [s, e];
 }
 
-export function currentClockSast(refDate = new Date()) {
+export function currentClockSast(refDate = new Date(), tz = DEFAULT_TIMEZONE) {
   const d = refDate instanceof Date ? refDate : new Date(refDate);
-  const parts = new Intl.DateTimeFormat('en-GB', {
-    timeZone: SAST_TZ,
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false,
-  }).formatToParts(d);
-  const h = parts.find((p) => p.type === 'hour')?.value;
-  const m = parts.find((p) => p.type === 'minute')?.value;
-  if (!h || !m) return null;
-  return `${String(parseInt(h, 10)).padStart(2, '0')}:${String(parseInt(m, 10)).padStart(2, '0')}`;
+  if (Number.isNaN(d.getTime())) return null;
+  const p = zonedParts(d, tz);
+  return `${String(p.hour).padStart(2, '0')}:${String(p.minute).padStart(2, '0')}`;
 }
 
-export function nowMinutesSast(venueWindow, now = new Date()) {
-  const nowClock = currentClockSast(now);
+export function nowMinutesSast(venueWindow, now = new Date(), tz = DEFAULT_TIMEZONE) {
+  const nowClock = currentClockSast(now, tz);
   if (!nowClock || !venueWindow) return null;
   return toServiceMinutes(nowClock, venueWindow);
 }
 
-export function isStartTimeInPast(startTime, venueWindow, now = new Date()) {
-  const nowM = nowMinutesSast(venueWindow, now);
+export function isStartTimeInPast(startTime, venueWindow, now = new Date(), tz = DEFAULT_TIMEZONE) {
+  const nowM = nowMinutesSast(venueWindow, now, tz);
   const startM = toServiceMinutes(startTime, venueWindow);
   if (nowM == null || startM == null) return false;
   return startM < nowM;
@@ -86,12 +90,12 @@ export function ceilToSlotStep(minutes, step = SLOT_STEP_MINUTES) {
   return Math.ceil(minutes / step) * step;
 }
 
-export function earliestBookableStartMinutes(venueWindow, now = new Date(), step = SLOT_STEP_MINUTES) {
+export function earliestBookableStartMinutes(venueWindow, now = new Date(), step = SLOT_STEP_MINUTES, tz = DEFAULT_TIMEZONE) {
   if (!venueWindow?.startTime) return null;
   const bookableStart = toServiceMinutes(venueWindow.startTime, venueWindow);
   if (bookableStart == null) return null;
 
-  const nowM = nowMinutesSast(venueWindow, now);
+  const nowM = nowMinutesSast(venueWindow, now, tz);
   if (nowM == null) return bookableStart;
 
   const roundedNow = ceilToSlotStep(nowM, step);
@@ -152,7 +156,7 @@ export function bookingDurationMinutes(startTime, endTime, venueWindow) {
 export function buildAvailableGaps(
   venueWindow,
   occupancy = [],
-  { minMinutes = MIN_WINDOW_MINUTES, endBufferMinutes = END_BUFFER_MINUTES, now = new Date() } = {},
+  { minMinutes = MIN_WINDOW_MINUTES, endBufferMinutes = END_BUFFER_MINUTES, now = new Date(), tz = DEFAULT_TIMEZONE } = {},
 ) {
   if (!venueWindow?.startTime || !venueWindow?.endTime) return [];
 
@@ -160,7 +164,7 @@ export function buildAvailableGaps(
   const venueEnd = toServiceMinutes(venueWindow.endTime, venueWindow);
   if (bookableStart == null || venueEnd == null) return [];
 
-  const earliest = earliestBookableStartMinutes(venueWindow, now);
+  const earliest = earliestBookableStartMinutes(venueWindow, now, SLOT_STEP_MINUTES, tz);
   if (earliest != null) {
     bookableStart = Math.max(bookableStart, earliest);
   }
@@ -202,43 +206,38 @@ export function buildAvailableGaps(
     }));
 }
 
-export function formatYmdSast(date) {
-  return new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Africa/Johannesburg',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).format(date instanceof Date ? date : new Date(date));
+export function formatYmdSast(date, tz = DEFAULT_TIMEZONE) {
+  return zonedYmd(date instanceof Date ? date : new Date(date), tz);
 }
 
-/** Calendar day in SAST as UTC instant (for hostedTable.eventDate). */
-export function bookingDateStartSast(date = new Date()) {
-  const ymd = formatYmdSast(date);
-  return new Date(`${ymd}T00:00:00+02:00`);
+/** Local midnight of `date`'s calendar day in `tz`, as a UTC instant (for hostedTable.eventDate). */
+export function bookingDateStartSast(date = new Date(), tz = DEFAULT_TIMEZONE) {
+  const p = zonedParts(date instanceof Date ? date : new Date(date), tz);
+  return zonedWallTimeToUtc(p.year, p.month, p.day, 0, 0, tz);
 }
 
-export function normalizeBookingDateSast(raw) {
-  if (!raw) return bookingDateStartSast(new Date());
+export function normalizeBookingDateSast(raw, tz = DEFAULT_TIMEZONE) {
+  if (!raw) return bookingDateStartSast(new Date(), tz);
   const d = raw instanceof Date ? raw : new Date(raw);
-  if (Number.isNaN(d.getTime())) return bookingDateStartSast(new Date());
-  return bookingDateStartSast(d);
+  if (Number.isNaN(d.getTime())) return bookingDateStartSast(new Date(), tz);
+  return bookingDateStartSast(d, tz);
 }
 
-/** Start of calendar day in SAST as UTC instant. */
-export function startOfTodaySast(now = new Date()) {
-  return bookingDateStartSast(now);
+/** Start of the local calendar day as a UTC instant. */
+export function startOfTodaySast(now = new Date(), tz = DEFAULT_TIMEZONE) {
+  return bookingDateStartSast(now, tz);
 }
 
-export function startOfTomorrowSast(now = new Date()) {
-  const d = startOfTodaySast(now);
-  d.setUTCDate(d.getUTCDate() + 1);
-  return d;
+export function startOfTomorrowSast(now = new Date(), tz = DEFAULT_TIMEZONE) {
+  const p = zonedParts(now instanceof Date ? now : new Date(now), tz);
+  const next = new Date(Date.UTC(p.year, p.month - 1, p.day + 1));
+  return zonedWallTimeToUtc(next.getUTCFullYear(), next.getUTCMonth() + 1, next.getUTCDate(), 0, 0, tz);
 }
 
-export function isHostedTableForToday(ht, refDate = new Date()) {
+export function isHostedTableForToday(ht, refDate = new Date(), tz = DEFAULT_TIMEZONE) {
   if (!ht?.eventDate) return false;
-  const eventYmd = formatYmdSast(ht.eventDate);
-  const todayYmd = formatYmdSast(refDate);
+  const eventYmd = formatYmdSast(ht.eventDate, tz);
+  const todayYmd = formatYmdSast(refDate, tz);
   return eventYmd === todayYmd;
 }
 
@@ -249,10 +248,10 @@ export function isDayVenueHostedTable(ht) {
 }
 
 /** Whether a day-booking host session should still block inventory / show as occupied. */
-export function isDaySessionStillActive(ht, venueTable, now = new Date()) {
+export function isDaySessionStillActive(ht, venueTable, now = new Date(), tz = zoneFrom(venueTable)) {
   if (!ht || !['ACTIVE', 'FULL'].includes(ht.status)) return false;
   if (ht.eventId) return false;
-  if (!isHostedTableForToday(ht, now)) return false;
+  if (!isHostedTableForToday(ht, now, tz)) return false;
   if (ht.windowEndsAt) {
     const end = ht.windowEndsAt instanceof Date ? ht.windowEndsAt : new Date(ht.windowEndsAt);
     return !Number.isNaN(end.getTime()) && end.getTime() > now.getTime();
@@ -262,18 +261,15 @@ export function isDaySessionStillActive(ht, venueTable, now = new Date()) {
   return false;
 }
 
-/** Calendar date + HH:mm in SAST (+02:00), matching cron.js eventStartDateTime. */
-export function parseWindowInstant(date, hhmm) {
+/** Calendar date + HH:mm as venue wall time, matching cron.js eventStartDateTime. */
+export function parseWindowInstant(date, hhmm, tz = DEFAULT_TIMEZONE) {
   if (!date || !hhmm) return null;
-  const ymd = formatYmdSast(date);
-  const clock = /^\d{2}:\d{2}$/.test(String(hhmm)) ? String(hhmm) : null;
-  if (!clock) return null;
-  const instant = new Date(`${ymd}T${clock}:00${SAST_OFFSET}`);
-  return Number.isNaN(instant.getTime()) ? null : instant;
+  if (!/^\d{2}:\d{2}$/.test(String(hhmm))) return null;
+  return zonedDateTimeToUtc(date, String(hhmm), tz);
 }
 
 /** When a day-booking host session moves from Upcoming to Past on the host dashboard. */
-export function dayBookingHideAfterUtc(hostedRow) {
+export function dayBookingHideAfterUtc(hostedRow, tz = DEFAULT_TIMEZONE) {
   // Prefer booked window end — never start + 24h.
   if (hostedRow?.windowEndsAt) {
     const stored =
@@ -282,41 +278,44 @@ export function dayBookingHideAfterUtc(hostedRow) {
   }
 
   if (hostedRow?.eventDate && hostedRow?.eventTime && hostedRow?.eventEndTime) {
-    const end = windowEndInstant(hostedRow.eventDate, hostedRow.eventTime, hostedRow.eventEndTime);
+    const end = windowEndInstant(hostedRow.eventDate, hostedRow.eventTime, hostedRow.eventEndTime, tz);
     if (end && !Number.isNaN(end.getTime())) return end;
   }
 
   if (hostedRow?.eventDate) {
-    const ymd = formatYmdSast(hostedRow.eventDate);
-    // End of booking calendar day in SAST (midnight next day).
-    const endOfBookingDay = new Date(`${ymd}T00:00:00+02:00`);
-    endOfBookingDay.setUTCDate(endOfBookingDay.getUTCDate() + 1);
-    return endOfBookingDay;
+    // End of the booking's local calendar day (midnight next day).
+    const cal = calendarParts(hostedRow.eventDate, tz);
+    if (!cal) return null;
+    const next = new Date(Date.UTC(cal.year, cal.month - 1, cal.day + 1));
+    return zonedWallTimeToUtc(next.getUTCFullYear(), next.getUTCMonth() + 1, next.getUTCDate(), 0, 0, tz);
   }
 
   return null;
 }
 
-export function windowEndInstant(date, startTime, endTime) {
-  const start = parseWindowInstant(date, startTime);
-  const end = parseWindowInstant(date, endTime);
+export function windowEndInstant(date, startTime, endTime, tz = DEFAULT_TIMEZONE) {
+  const start = parseWindowInstant(date, startTime, tz);
+  const end = parseWindowInstant(date, endTime, tz);
   if (!start || !end) return null;
   const startClock = parseClock(startTime);
   const endClock = parseClock(endTime);
   if (startClock && endClock && endClock.minutes <= startClock.minutes) {
-    end.setUTCDate(end.getUTCDate() + 1);
+    const cal = calendarParts(date, tz);
+    const next = new Date(Date.UTC(cal.year, cal.month - 1, cal.day + 1));
+    return zonedWallTimeToUtc(next.getUTCFullYear(), next.getUTCMonth() + 1, next.getUTCDate(), endClock.h, endClock.m, tz);
   }
   return end;
 }
 
-export function venueWindowForDate(table, refDate = new Date()) {
-  const entry = scheduleEntryForWeekday(table, weekdayKeyFromDate(refDate));
+export function venueWindowForDate(table, refDate = new Date(), tz = zoneFrom(table)) {
+  const entry = scheduleEntryForWeekday(table, weekdayKeyFromDate(refDate, tz));
+  // timeZone travels with the window so clients evaluate "now" in venue time.
   if (entry) {
-    return { startTime: entry.startTime, endTime: entry.endTime };
+    return { startTime: entry.startTime, endTime: entry.endTime, timeZone: tz };
   }
   const startTime = table?.startTime ?? table?.start_time;
   const endTime = table?.endTime ?? table?.end_time;
-  if (startTime && endTime) return { startTime: String(startTime), endTime: String(endTime) };
+  if (startTime && endTime) return { startTime: String(startTime), endTime: String(endTime), timeZone: tz };
   return null;
 }
 
@@ -334,6 +333,7 @@ export function isTimeWithinWindow(time, windowStart, windowEnd) {
 }
 
 export function validateUserWindow(userStart, userEnd, venueWindow, now = new Date(), options = {}) {
+  const tz = options.tz || DEFAULT_TIMEZONE;
   if (!venueWindow?.startTime || !venueWindow?.endTime) {
     return { ok: false, error: 'No service window configured for this day' };
   }
@@ -341,7 +341,7 @@ export function validateUserWindow(userStart, userEnd, venueWindow, now = new Da
   const e = parseClock(userEnd);
   if (!s || !e) return { ok: false, error: 'Invalid time format' };
 
-  if (isStartTimeInPast(userStart, venueWindow, now)) {
+  if (isStartTimeInPast(userStart, venueWindow, now, tz)) {
     return { ok: false, error: 'This time has already passed' };
   }
 
@@ -377,20 +377,11 @@ export function validateUserWindow(userStart, userEnd, venueWindow, now = new Da
   return { ok: true };
 }
 
-export function formatHHmmSast(instant) {
+export function formatHHmmSast(instant, tz = DEFAULT_TIMEZONE) {
   if (!instant) return null;
   const d = instant instanceof Date ? instant : new Date(instant);
   if (Number.isNaN(d.getTime())) return null;
-  const parts = new Intl.DateTimeFormat('en-ZA', {
-    timeZone: 'Africa/Johannesburg',
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false,
-  }).formatToParts(d);
-  const h = parts.find((p) => p.type === 'hour')?.value;
-  const m = parts.find((p) => p.type === 'minute')?.value;
-  if (!h || !m) return null;
-  return `${h}:${m}`;
+  return currentClockSast(d, tz);
 }
 
 export function resolveBookingWindowFromPayload(payload, existing, venueTable, bookingDate = new Date()) {
@@ -425,7 +416,8 @@ export function validateDayBookingWindow(table, payload, existing, bookingDate =
   if (!windowStart || !windowEnd) {
     return { ok: false, error: 'Select a start and end time for your booking' };
   }
-  const venueWindow = venueWindowForDate(table, date);
+  const tz = zoneFrom(table);
+  const venueWindow = venueWindowForDate(table, date, tz);
   const maxHours =
     table?.venue?.maxBookingDurationHours ??
     table?.venue?.max_booking_duration_hours ??
@@ -434,9 +426,10 @@ export function validateDayBookingWindow(table, payload, existing, bookingDate =
     maxHours != null && Number(maxHours) > 0 ? Number(maxHours) * 60 : null;
   const check = validateUserWindow(windowStart, windowEnd, venueWindow, new Date(), {
     maxDurationMinutes,
+    tz,
   });
   if (!check.ok) return check;
-  return { ok: true, bookingDate: date, windowStart, windowEnd, windowEndsAt: windowEndInstant(date, windowStart, windowEnd) };
+  return { ok: true, bookingDate: date, windowStart, windowEnd, windowEndsAt: windowEndInstant(date, windowStart, windowEnd, tz) };
 }
 
 export function isDayVenueTable(table) {
@@ -483,7 +476,7 @@ function sessionWindowFromHosted(ht, venueTable, bookingDate) {
   const startTime = ht.eventTime ? String(ht.eventTime) : null;
   let endTime = null;
   if (ht.windowEndsAt) {
-    endTime = formatHHmmSast(ht.windowEndsAt);
+    endTime = formatHHmmSast(ht.windowEndsAt, zoneFrom(venueTable));
   } else if (venueTable) {
     const vw = venueWindowForDate(venueTable, bookingDate);
     endTime = vw?.endTime || null;
@@ -512,7 +505,7 @@ export async function canHostInWindow(
   return { ok: true };
 }
 
-export function buildHostedTablePayload(ht, { goingCount = null, requestedGuestCount = null } = {}) {
+export function buildHostedTablePayload(ht, { goingCount = null, requestedGuestCount = null, tz = DEFAULT_TIMEZONE } = {}) {
   const going =
     goingCount != null
       ? Math.max(0, Number(goingCount) || 0)
@@ -533,7 +526,7 @@ export function buildHostedTablePayload(ht, { goingCount = null, requestedGuestC
     spotsRemaining,
     windowStartTime: ht.eventTime ? String(ht.eventTime) : null,
     windowEndTime: ht.windowEndsAt
-      ? formatHHmmSast(ht.windowEndsAt)
+      ? formatHHmmSast(ht.windowEndsAt, tz)
       : null,
     isCustomTable: Boolean(requestedGuestCount),
     host: {
@@ -558,7 +551,7 @@ export async function buildOccupancyForSlot(venueTable, bookingDate = new Date()
       hostedTableId: ht.id,
       hostName:
         ht.host?.userProfile?.username || ht.host?.username || ht.host?.fullName || null,
-      hostedTable: buildHostedTablePayload(ht, { goingCount }),
+      hostedTable: buildHostedTablePayload(ht, { goingCount, tz: zoneFrom(venueTable) }),
       spotsRemaining: ht.spotsRemaining,
     });
   }
@@ -572,9 +565,10 @@ export function computeLegacyWindowEndsAt(hostedTable, venueTable) {
   }
   if (!venueTable) return null;
   const bookingDate = hostedTable?.eventDate || new Date();
-  const vw = venueWindowForDate(venueTable, bookingDate);
+  const tz = zoneFrom(venueTable);
+  const vw = venueWindowForDate(venueTable, bookingDate, tz);
   if (!vw) return null;
-  return windowEndInstant(bookingDate, vw.startTime, vw.endTime);
+  return windowEndInstant(bookingDate, vw.startTime, vw.endTime, tz);
 }
 
 export function resolveBookingWindowFromMember(member, venueTable, bookingDate = new Date()) {

@@ -16,6 +16,7 @@ import {
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
 import { hostedListingDetailsPath, hostedListingSettingsLabel } from '@/lib/hostedListingUrl';
+import { useMoney } from '@/hooks/useMoney';
 
 const TABLE_HOST_STATUS_BADGE = {
   DRAFT: { label: 'Awaiting listing payment', bg: 'var(--sec-warning-muted)', color: 'var(--sec-text-primary)' },
@@ -61,6 +62,7 @@ export default function HostedTableHostCard({
   childrenInvite,
   isPast = false,
 }) {
+  const money = useMoney();
   const [deleting, setDeleting] = useState(false);
   const settingsLabel = hostedListingSettingsLabel(t);
   const detailsHref = hostedListingDetailsPath(t);
@@ -188,7 +190,7 @@ export default function HostedTableHostCard({
                 background: 'var(--sec-accent-muted)',
               }}
             >
-              R{Number(t.joiningFee || 0).toFixed(0)} join
+              {money.format(t.joiningFee || 0)} join
             </span>
           ) : null}
         </div>

@@ -19,6 +19,7 @@ import {
   toServiceMinutes,
   validateBookingWindow,
   findGapContainingWindow,
+  venueZoneLabelIfDifferent,
 } from '@/lib/dayBookingSlotUtils';
 
 export { isWindowValid } from '@/lib/dayBookingSlotUtils';
@@ -135,6 +136,7 @@ export default function DayBookingTimeSlotPicker({
   }, [maxDurationMinutes]);
   const latestBookableEnd = latestBookableEndProp || latestBookableEndTime(venueWindow);
   const earliestStart = earliestBookableStartTime(venueWindow, now);
+  const venueZoneLabel = venueZoneLabelIfDifferent(venueWindow, now);
 
   const gaps = useMemo(() => {
     if (venueWindow) {
@@ -354,6 +356,7 @@ export default function DayBookingTimeSlotPicker({
           <p className="text-xs text-[var(--sec-text-muted)] mt-0.5">
             {mode === 'host' ? 'Choose when you will host this table' : 'Choose when you will join'}
             {latestBookableEnd ? ` · Last booking ends by ${latestBookableEnd}` : ''}
+            {venueZoneLabel ? ` · Venue time (${venueZoneLabel})` : ''}
           </p>
           {showEarliestHint ? (
             <p className="text-xs mt-1" style={{ color: 'var(--sec-accent)' }}>

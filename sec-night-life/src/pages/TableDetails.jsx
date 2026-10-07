@@ -40,6 +40,7 @@ import CheckoutCart from '@/components/checkout/CheckoutCart';
 import { CustomTableRequestForm } from '@/components/tables/CustomTableRequestModal';
 import DayBookingTimeSlotPicker, { isWindowValid } from '@/components/tables/DayBookingTimeSlotPicker';
 import { getDirectionsActions } from '@/lib/openDirections';
+import { useMoney } from '@/hooks/useMoney';
 import {
   isDayBookingVenueTable,
   resolveDayBookingContext,
@@ -129,6 +130,7 @@ function HostCheckoutQrInline({ ticket }) {
 /* ── page ─────────────────────────────────────────────────────── */
 
 export default function TableDetails() {
+  const money = useMoney();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [user, setUser] = useState(null);
@@ -1603,8 +1605,8 @@ export default function TableDetails() {
             gap: 12, paddingTop: 14,
             borderTop: '1px solid var(--sec-border)',
           }}>
-            <StatCell value={`R${table.min_spend?.toLocaleString()}`} label="Min Spend" />
-            <StatCell value={`R${spendPerPerson.toLocaleString()}`} label="Per Person" />
+            <StatCell value={money.format(table.min_spend)} label="Min Spend" />
+            <StatCell value={money.format(spendPerPerson)} label="Per Person" />
             <StatCell
               value={spotsLeft}
               label="Spots Left"

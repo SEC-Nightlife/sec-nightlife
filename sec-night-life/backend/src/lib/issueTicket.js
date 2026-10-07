@@ -12,6 +12,7 @@ import {
 import { buildTicketDoorContext } from './ticketDoorContext.js';
 import { buildTicketVerifyUrlWithHints, defaultTicketVerifyOrigin } from './ticketVerifyUrl.js';
 import { logger } from './logger.js';
+import { zoneFrom } from './timezone.js';
 
 function notificationCopyForTicketKind(kind, title) {
   switch (kind) {
@@ -181,7 +182,7 @@ export async function issueTicketAndNotify(db, params) {
   const baseUrl = base;
   const profileUrl = baseUrl ? `${baseUrl}/Profile` : '/Profile';
   const verifyUrl = qrContent.startsWith('http') ? qrContent : baseUrl ? `${baseUrl}${qrContent}` : qrContent;
-  const validUntilLabel = formatVisibleUntilSast(effectiveVisibleUntil);
+  const validUntilLabel = formatVisibleUntilSast(effectiveVisibleUntil, zoneFrom({ timezone: door.venue_timezone }));
 
   if (!skipNotification) {
     const notice = notificationCopyForTicketKind(kind, title);

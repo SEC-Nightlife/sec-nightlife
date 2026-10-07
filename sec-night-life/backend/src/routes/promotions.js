@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { resolveFeedScope, eventScopeWhere } from '../lib/feedScope.js';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
 import { isStaff, staffHasVenuePermission, resolveBusinessVenueScope, staffCtxFromQuery } from '../lib/access.js';
@@ -324,6 +325,7 @@ router.post('/', authenticateToken, async (req, res, next) => {
         imageUrl: data.imageUrl || null,
         imagePublicId: data.imagePublicId || null,
         targetCity: data.targetCity || null,
+        targetCountryCode: venue.countryCode || null,
         status: 'DRAFT',
         startAt: startsAt,
         endAt: endsAt,
@@ -880,8 +882,9 @@ router.get('/feed', optionalAuth, async (req, res, next) => {
     const rotationWindowMs = rotationWindowMinutes * 60 * 1000;
     const rotationBucket = Math.floor(now.getTime() / rotationWindowMs);
 
+    const feed = await resolveFeedScope(req);
     let city = '';
-    if (scopeAll) {
+    if (scopeAll || feed) {
       city = '';
     } else {
       city = overrideCity;
@@ -902,6 +905,7 @@ router.get('/feed', optionalAuth, async (req, res, next) => {
         status: 'ACTIVE',
         startAt: { lte: now },
         endAt: { gt: now },
+        ...(feed ? eventScopeWhere(feed) : {}),
         ...(city
           ? {
               OR: [

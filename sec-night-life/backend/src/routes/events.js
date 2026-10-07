@@ -33,6 +33,8 @@ import {
   maxBoostDaysUntil,
 } from '../lib/feedBoost.js';
 import crypto from 'crypto';
+import { DEFAULT_COUNTRY_CODE, normalizeCountryCode, zoneOf } from '../lib/timezone.js';
+import { resolveFeedScope, scopeWhere } from '../lib/feedScope.js';
 
 const router = Router();
 
@@ -239,6 +241,8 @@ function mapEventRow(e) {
     location_city: resolvedLocationCity || null,
     location_suburb: e.locationSuburb || null,
     location_province: e.locationProvince || null,
+    country_code: e.countryCode || null,
+    timezone: zoneOf(e),
     venue_id: e.venueId,
     status: e.status,
     is_featured: e.isFeatured,
@@ -541,6 +545,8 @@ function mapEventDetail(event, stats = null) {
     location_city: resolvedLocationCity,
     location_suburb: event.locationSuburb || v?.suburb || null,
     location_province: event.locationProvince || v?.province || null,
+    country_code: event.countryCode || v?.countryCode || null,
+    timezone: zoneOf(event.timezone ? event : v),
     venue_id: event.venueId,
     status: event.status,
     is_featured: event.isFeatured,
@@ -712,6 +718,16 @@ async function applyOwnedOrStaffEventIsolation(req, where) {
   await applyEventVenueIsolation(where, req.userId, req.userRole, req.query.venue_id || null);
 }
 
+/** Viewer feed scope (local / national / worldwide) for public discovery lists. */
+async function applyPublicFeedScope(req, where) {
+  if (req.query.id || req.query.venue_id) return;
+  const feed = await resolveFeedScope(req);
+  if (!feed) return;
+  const scoped = scopeWhere(feed, { geoRelation: 'venue' });
+  if (scoped.city && where.city) delete scoped.city;
+  Object.assign(where, scoped);
+}
+
 router.get('/', optionalAuth, async (req, res, next) => {
   try {
     const now = new Date();
@@ -722,7 +738,9 @@ router.get('/', optionalAuth, async (req, res, next) => {
         || (Array.isArray(req.query.venue_id) ? req.query.venue_id[0] : req.query.venue_id);
       if (typeof venueIdRaw === 'string' && venueIdRaw.trim()) where.venueId = venueIdRaw.trim();
     }
-    if (req.query.city) where.city = String(req.query.city);
+    if (req.query.city) where.city = { equals: String(req.query.city), mode: 'insensitive' };
+    const countryQ = normalizeCountryCode(req.query.country_code || req.query.country);
+    if (countryQ) where.countryCode = countryQ;
     if (req.query.id) where.id = req.query.id;
     const eventFormatQ = String(req.query.event_format || '').trim().toUpperCase();
     if (eventFormatQ === 'TICKETING_ONLY' || eventFormatQ === 'TABLE_HOSTING') {
@@ -742,6 +760,8 @@ router.get('/', optionalAuth, async (req, res, next) => {
     }
     if (shouldIsolateEventList(req)) {
       await applyOwnedOrStaffEventIsolation(req, where);
+    } else {
+      await applyPublicFeedScope(req, where);
     }
     const take = Math.min(Math.max(parseInt(req.query.limit, 10) || 50, 1), 100);
     const skip = Math.max(parseInt(req.query.skip, 10) || 0, 0);
@@ -1019,6 +1039,9 @@ router.get('/filter', optionalAuth, async (req, res, next) => {
       if (typeof venueIdRaw === 'string' && venueIdRaw.trim()) where.venueId = venueIdRaw.trim();
     }
     if (req.query.status) where.status = req.query.status;
+    if (req.query.city) where.city = { equals: String(req.query.city), mode: 'insensitive' };
+    const countryFilter = normalizeCountryCode(req.query.country_code || req.query.country);
+    if (countryFilter && !req.query.feed_scope) where.countryCode = countryFilter;
     const eventFormatQ = String(req.query.event_format || '').trim().toUpperCase();
     if (eventFormatQ === 'TICKETING_ONLY' || eventFormatQ === 'TABLE_HOSTING') {
       where.eventFormat = eventFormatQ;
@@ -1037,6 +1060,8 @@ router.get('/filter', optionalAuth, async (req, res, next) => {
     }
     if (shouldIsolateEventList(req)) {
       await applyOwnedOrStaffEventIsolation(req, where);
+    } else {
+      await applyPublicFeedScope(req, where);
     }
     const sort = String(req.query.sort || 'date');
     const sortDesc = sort === '-date';
@@ -1455,7 +1480,7 @@ router.post('/', authenticateToken, async (req, res, next) => {
     const resolvedLocationCity = d.location_city || d.city || venue.city;
     if (!resolvedLocationCity) return res.status(400).json({ error: 'Invalid input' });
 
-    const rowClock = { date: new Date(d.date), startTime: d.start_time ?? null, endsAt: null, ends_at: d.ends_at };
+    const rowClock = { date: new Date(d.date), startTime: d.start_time ?? null, endsAt: null, ends_at: d.ends_at, timezone: zoneOf(venue) };
     const startsAt = eventStartsAtFromEvent(rowClock);
     const endsAtResolved = d.ends_at ? new Date(d.ends_at) : eventEndsAtFromEvent(rowClock);
 
@@ -1515,6 +1540,8 @@ router.post('/', authenticateToken, async (req, res, next) => {
         description: d.description,
         date: new Date(d.date),
         city: resolvedLocationCity,
+        countryCode: venue.countryCode || DEFAULT_COUNTRY_CODE,
+        timezone: zoneOf(venue),
         locationAddress: d.location_address || venue.address || null,
         locationCity: resolvedLocationCity,
         locationSuburb: d.location_suburb || venue.suburb || null,
@@ -1601,6 +1628,12 @@ router.patch('/:id', authenticateToken, async (req, res, next) => {
       if (!resolvedCity) return res.status(400).json({ error: 'Invalid input' });
       updates.city = resolvedCity;
       updates.locationCity = resolvedCity;
+    }
+    if (event.venue.countryCode && event.countryCode !== event.venue.countryCode) {
+      updates.countryCode = event.venue.countryCode;
+    }
+    if (event.venue.timezone && event.timezone !== event.venue.timezone) {
+      updates.timezone = event.venue.timezone;
     }
     if (d.status != null) updates.status = d.status;
     if (d.cover_image_url !== undefined) updates.coverImageUrl = d.cover_image_url;
@@ -1716,7 +1749,7 @@ router.patch('/:id', authenticateToken, async (req, res, next) => {
       if (!mergedEnds) {
         return res.status(400).json({ error: 'Event end date and time is required to publish.' });
       }
-      const st = eventStartsAtFromEvent({ date: mergedDate, startTime: mergedStart });
+      const st = eventStartsAtFromEvent({ date: mergedDate, startTime: mergedStart, timezone: event.timezone });
       const en = mergedEnds instanceof Date ? mergedEnds : new Date(mergedEnds);
       if (st && en && en.getTime() < st.getTime()) {
         return res.status(400).json({ error: 'Event end must be after start.' });

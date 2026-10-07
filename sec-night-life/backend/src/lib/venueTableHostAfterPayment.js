@@ -81,6 +81,10 @@ async function createHostedTableFromVenueSlot({
   let venueName = 'Venue';
   let venueAddress = null;
   let eventId = null;
+  let locationCity = null;
+  let locationCountry = null;
+  let locationLat = null;
+  let locationLng = null;
 
   const windowFromMember = hostMember ? resolveBookingWindowFromMember(hostMember, venueTable) : null;
 
@@ -94,9 +98,17 @@ async function createHostedTableFromVenueSlot({
     venueName = eventContext.venue?.name || venueName;
     venueAddress = eventContext.venue?.address || eventContext.city || null;
     eventId = eventContext.id;
+    locationCity = eventContext.city || eventContext.venue?.city || null;
+    locationCountry = eventContext.countryCode || eventContext.venue?.countryCode || null;
+    locationLat = eventContext.venue?.latitude ?? null;
+    locationLng = eventContext.venue?.longitude ?? null;
   } else if (venueContext) {
     venueName = venueContext.name || venueName;
     venueAddress = venueContext.address || venueContext.city || null;
+    locationCity = venueContext.city || null;
+    locationCountry = venueContext.countryCode || null;
+    locationLat = venueContext.latitude ?? null;
+    locationLng = venueContext.longitude ?? null;
     eventDate = normalizeBookingDateSast(windowFromMember?.bookingDate || new Date());
     if (windowFromMember?.windowStartTime) eventTime = String(windowFromMember.windowStartTime);
   }
@@ -120,6 +132,10 @@ async function createHostedTableFromVenueSlot({
       eventId,
       venueName,
       venueAddress,
+      city: locationCity,
+      countryCode: locationCountry,
+      latitude: locationLat,
+      longitude: locationLng,
       eventDate,
       eventTime,
       venueTableId: eventId ? null : venueTable.id,

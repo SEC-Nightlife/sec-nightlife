@@ -7,10 +7,14 @@ import { motion } from 'framer-motion';
 import { differenceInDays } from 'date-fns';
 import { apiGet } from '@/api/client';
 import LegalDocLink from '@/components/legal/LegalDocLink';
+import FeedScopeToggle from '@/components/location/FeedScopeToggle';
+import { useFeedScopeParams } from '@/hooks/useFeedScope';
+import { useContentCities } from '@/hooks/useContentCities';
+import { useMoney } from '@/hooks/useMoney';
+import { formatZar } from '@/lib/money';
 
 const JOB_TYPES = ['ALL', 'FULL_TIME', 'PART_TIME', 'ONCE_OFF', 'CONTRACT'];
 const COMPENSATION_TYPES = ['ALL', 'FIXED', 'NEGOTIABLE', 'UNPAID_TRIAL'];
-const CITY_OPTIONS = ['ALL', 'Johannesburg', 'Cape Town', 'Durban', 'Pretoria'];
 
 function toLabel(text) {
   return String(text || '').replaceAll('_', ' ').toLowerCase().replace(/^\w/, (c) => c.toUpperCase());
@@ -28,11 +32,11 @@ function closingText(closingDate) {
   return `Closes in ${days} day${days === 1 ? '' : 's'}`;
 }
 
-function compensationText(job) {
+function compensationText(job, fmt = formatZar) {
   if (job.compensationPer === 'COMMISSION') return 'Commission based';
   if (job.compensationType === 'NEGOTIABLE') return 'Negotiable';
   if (job.compensationType === 'UNPAID_TRIAL') return 'Unpaid trial';
-  if (job.compensationAmount) return `R${Number(job.compensationAmount).toFixed(0)} per ${String(job.compensationPer || 'MONTH').toLowerCase()}`;
+  if (job.compensationAmount) return `${fmt(job.compensationAmount)} per ${String(job.compensationPer || 'MONTH').toLowerCase()}`;
   return 'Compensation not specified';
 }
 
@@ -41,16 +45,26 @@ function toAppliedSet(apps) {
 }
 
 export default function Jobs() {
+  const money = useMoney();
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedType, setSelectedType] = useState('ALL');
   const [selectedCity, setSelectedCity] = useState('ALL');
   const [selectedCompensation, setSelectedCompensation] = useState('ALL');
+  const scope = useFeedScopeParams();
+  const { cities: contentCities } = useContentCities({
+    source: 'jobs',
+    countryCode: scope.feedScope === 'worldwide' ? null : scope.countryCode,
+  });
+  const cityOptions = ['ALL', ...contentCities];
 
   const { data: jobs = [], isLoading } = useQuery({
-    queryKey: ['public-jobs', selectedCity, selectedType, selectedCompensation],
+    queryKey: ['public-jobs', selectedCity, selectedType, selectedCompensation, scope.key],
     queryFn: () => {
-      const params = new URLSearchParams();
-      if (selectedCity !== 'ALL') params.set('city', selectedCity);
+      const params = new URLSearchParams(scope.params);
+      if (selectedCity !== 'ALL') {
+        params.set('city', selectedCity);
+        params.set('feed_scope', 'worldwide');
+      }
       if (selectedType !== 'ALL') params.set('jobType', selectedType);
       if (selectedCompensation !== 'ALL') params.set('compensationType', selectedCompensation);
       return apiGet(`/api/jobs/public${params.toString() ? `?${params.toString()}` : ''}`, { skipAuth: false });
@@ -73,7 +87,10 @@ export default function Jobs() {
     <div style={{ minHeight: '100vh', backgroundColor: 'var(--sec-bg-base)' }}>
       <header style={{ position: 'sticky', top: 0, zIndex: 40, paddingTop: 'env(safe-area-inset-top)', backgroundColor: 'rgba(0,0,0,0.92)', backdropFilter: 'blur(16px)', borderBottom: '1px solid var(--sec-border)' }}>
         <div style={{ padding: 'var(--space-4) var(--space-6)' }}>
-          <h1 style={{ fontSize: 24, fontWeight: 600, marginBottom: 16, color: 'var(--sec-text-primary)' }}>Jobs</h1>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 16 }}>
+            <h1 style={{ fontSize: 24, fontWeight: 600, color: 'var(--sec-text-primary)' }}>Jobs</h1>
+            <FeedScopeToggle compact />
+          </div>
           <div style={{ position: 'relative' }}>
             <Search size={18} strokeWidth={1.5} style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', color: 'var(--sec-text-muted)' }} />
             <input className="sec-input" placeholder="Search jobs..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} style={{ paddingLeft: 44, height: 48 }} />
@@ -81,7 +98,7 @@ export default function Jobs() {
         </div>
         <div style={{ padding: '0 var(--space-6) var(--space-4)', display: 'grid', gap: 8 }}>
           <select className="sec-input" style={{ height: 44 }} value={selectedCity} onChange={(e) => setSelectedCity(e.target.value)}>
-            {CITY_OPTIONS.map((x) => <option key={x} value={x}>{x === 'ALL' ? 'All cities' : x}</option>)}
+            {cityOptions.map((x) => <option key={x} value={x}>{x === 'ALL' ? 'All cities' : x}</option>)}
           </select>
           <select className="sec-input" style={{ height: 44 }} value={selectedType} onChange={(e) => setSelectedType(e.target.value)}>
             {JOB_TYPES.map((x) => <option key={x} value={x}>{x === 'ALL' ? 'All job types' : toLabel(x)}</option>)}
@@ -138,7 +155,7 @@ export default function Jobs() {
                     <span className="sec-badge sec-badge-gold">{toLabel(job.jobType)}</span>
                     <span style={{ marginLeft: 8, fontSize: 11, color: 'var(--sec-text-muted)' }}>{spotsLeft(job)} spots left</span>
                   </div>
-                  <p style={{ marginTop: 8, fontSize: 13, fontWeight: 600, color: 'var(--sec-accent)' }}>{compensationText(job)}</p>
+                  <p style={{ marginTop: 8, fontSize: 13, fontWeight: 600, color: 'var(--sec-accent)' }}>{compensationText(job, money.format)}</p>
                   {closingText(job.closingDate) ? <p style={{ marginTop: 8, fontSize: 12, color: 'var(--sec-warning)' }}>{closingText(job.closingDate)}</p> : null}
                   <p style={{ marginTop: 8, fontSize: 12, color: 'var(--sec-text-muted)' }}>{String(job.description || '').slice(0, 100)}</p>
                   <div style={{ marginTop: 10 }}>{appliedSet.has(job.id) ? <span className="sec-badge sec-badge-success">Applied</span> : <span className="sec-badge sec-badge-muted">Apply</span>}</div>

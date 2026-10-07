@@ -40,6 +40,7 @@ function parseGoogleResult(result, latN, lngN) {
     '';
 
   const province = componentByType(addressComponents, 'administrative_area_level_1')?.long_name || '';
+  const countryShort = componentByType(addressComponents, 'country')?.short_name || '';
 
   const primary =
     street ||
@@ -53,7 +54,7 @@ function parseGoogleResult(result, latN, lngN) {
     suburb: suburb || city || '',
     city,
     province,
-    country: 'ZA',
+    country: countryShort ? countryShort.toUpperCase() : null,
     latitude: latN,
     longitude: lngN,
   };
@@ -105,7 +106,7 @@ async function reverseViaApiStructured(latN, lngN) {
     suburb: typeof data?.suburb === 'string' ? data.suburb : '',
     city: typeof data?.city === 'string' ? data.city : '',
     province: typeof data?.province === 'string' ? data.province : '',
-    country: data?.country || 'ZA',
+    country: data?.country || null,
     latitude: latN,
     longitude: lngN,
   };
@@ -132,7 +133,7 @@ export async function reverseGeocodeLatLngStructured(lat, lng) {
     suburb: '',
     city: '',
     province: '',
-    country: 'ZA',
+    country: null,
     latitude: latN,
     longitude: lngN,
   };

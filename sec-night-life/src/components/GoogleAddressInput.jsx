@@ -40,8 +40,7 @@ function parsePlaceToStructured(place) {
   const lat = place.geometry?.location?.lat ? place.geometry.location.lat() : null;
   const lng = place.geometry?.location?.lng ? place.geometry.location.lng() : null;
 
-  const normalizedCountry =
-    typeof country === 'string' && country.toLowerCase() === 'za' ? 'ZA' : (country || 'ZA');
+  const normalizedCountry = typeof country === 'string' && country ? country.toUpperCase() : null;
 
   return {
     formattedAddress,
@@ -55,7 +54,7 @@ function parsePlaceToStructured(place) {
   };
 }
 
-function toStructuredValue(value) {
+function toStructuredValue(value, countryCode = null) {
   if (!value) return null;
   if (typeof value === 'string') {
     return {
@@ -64,7 +63,7 @@ function toStructuredValue(value) {
       suburb: '',
       city: '',
       province: '',
-      country: 'ZA',
+      country: countryCode,
       latitude: null,
       longitude: null,
     };
@@ -80,6 +79,7 @@ function FallbackAddressInput({
   onCoordinatesChange,
   placeholder,
   setStructuredFromDraft,
+  restrictCountry,
 }) {
   const [suggestions, setSuggestions] = useState([]);
   const [searching, setSearching] = useState(false);
@@ -98,8 +98,9 @@ function FallbackAddressInput({
     const timer = setTimeout(async () => {
       setSearching(true);
       try {
+        const countryParam = restrictCountry ? `&country=${encodeURIComponent(restrictCountry)}` : '';
         const data = await apiGet(
-          `/api/map/search-places?q=${encodeURIComponent(q)}`,
+          `/api/map/search-places?q=${encodeURIComponent(q)}${countryParam}`,
           { timeoutMs: 10000, skipAuth: true }
         );
         if (!cancelled) {
@@ -117,7 +118,7 @@ function FallbackAddressInput({
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [draft]);
+  }, [draft, restrictCountry]);
 
   const pickSuggestion = (item) => {
     setDraft(item.formattedAddress || '');
@@ -178,18 +179,18 @@ function FallbackAddressInput({
 
       <div className="grid grid-cols-2 gap-4">
         <div>
-          <Label className="text-gray-400 text-xs">Suburb</Label>
+          <Label className="text-gray-400 text-xs">Suburb / area</Label>
           <Input
-            placeholder="e.g. Sandton"
+            placeholder="Neighbourhood"
             value={structuredValue?.suburb || ''}
             onChange={(e) => onChange({ ...(structuredValue || toStructuredValue('')), suburb: e.target.value })}
             className="mt-2 h-12 bg-[#141416] border-[#262629] rounded-xl"
           />
         </div>
         <div>
-          <Label className="text-gray-400 text-xs">Province</Label>
+          <Label className="text-gray-400 text-xs">State / province / region</Label>
           <Input
-            placeholder="e.g. Gauteng"
+            placeholder="Region"
             value={structuredValue?.province || ''}
             onChange={(e) => onChange({ ...(structuredValue || toStructuredValue('')), province: e.target.value })}
             className="mt-2 h-12 bg-[#141416] border-[#262629] rounded-xl"
@@ -208,7 +209,11 @@ export default function GoogleAddressInput({
   label = 'Full Address',
   /** Always show Suburb / Province fields (not only Maps fallback). */
   showSuburbProvince = false,
+  /** ISO alpha-2 country to restrict suggestions to; omit for worldwide. */
+  countryCode = null,
 }) {
+  const restrictCountry =
+    typeof countryCode === 'string' && /^[A-Za-z]{2}$/.test(countryCode) ? countryCode.toLowerCase() : null;
   const inputRef = useRef(null);
   const [autocomplete, setAutocomplete] = useState(null);
   const { status: mapsStatus } = useGoogleMaps();
@@ -228,7 +233,7 @@ export default function GoogleAddressInput({
 
     const autocompleteInstance = new window.google.maps.places.Autocomplete(inputRef.current, {
       types: ['address'],
-      componentRestrictions: { country: 'za' },
+      ...(restrictCountry ? { componentRestrictions: { country: restrictCountry } } : {}),
     });
 
     autocompleteInstance.addListener('place_changed', () => {
@@ -249,7 +254,12 @@ export default function GoogleAddressInput({
     });
 
     setAutocomplete(autocompleteInstance);
-  }, [mapsStatus, autocomplete, onChange, onCoordinatesChange]);
+  }, [mapsStatus, autocomplete, onChange, onCoordinatesChange, restrictCountry]);
+
+  useEffect(() => {
+    if (!autocomplete) return;
+    autocomplete.setComponentRestrictions(restrictCountry ? { country: restrictCountry } : null);
+  }, [autocomplete, restrictCountry]);
 
   const setStructuredFromDraft = (nextDraft) => {
     const base = structuredValue || toStructuredValue('');
@@ -271,9 +281,9 @@ export default function GoogleAddressInput({
   const suburbProvinceFields = showSuburbProvince && !useFallback ? (
     <div className="grid grid-cols-2 gap-4 mt-3">
       <div>
-        <Label className="text-gray-400 text-xs">Suburb</Label>
+        <Label className="text-gray-400 text-xs">Suburb / area</Label>
         <Input
-          placeholder="e.g. Sandton"
+          placeholder="Neighbourhood"
           value={structuredValue?.suburb || ''}
           onChange={(e) =>
             onChange({ ...(structuredValue || toStructuredValue('')), suburb: e.target.value })
@@ -282,9 +292,9 @@ export default function GoogleAddressInput({
         />
       </div>
       <div>
-        <Label className="text-gray-400 text-xs">Province</Label>
+        <Label className="text-gray-400 text-xs">State / province / region</Label>
         <Input
-          placeholder="e.g. Gauteng"
+          placeholder="Region"
           value={structuredValue?.province || ''}
           onChange={(e) =>
             onChange({ ...(structuredValue || toStructuredValue('')), province: e.target.value })
@@ -311,6 +321,7 @@ export default function GoogleAddressInput({
           onCoordinatesChange={onCoordinatesChange}
           placeholder={placeholder}
           setStructuredFromDraft={setStructuredFromDraft}
+          restrictCountry={restrictCountry}
         />
       ) : (
         <>

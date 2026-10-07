@@ -3,6 +3,7 @@ import { buildTableOfferings, buildCommunityHostedEvents } from './tableOffering
 import { parseGeoQuery } from './geo.js';
 import { fetchFeaturedEventDetails } from './featuredEvents.js';
 import { buildHomeFeedPage } from './homeFeedPage.js';
+import { resolveFeedScope, eventScopeWhere } from './feedScope.js';
 
 async function fetchAnnouncements() {
   const rows = await prisma.platformAnnouncement.findMany({
@@ -90,7 +91,7 @@ async function fetchFollowedPromoters(userId) {
   }));
 }
 
-async function fetchPromotionsPage({ userId, city, scopeAll, limit = 12 }) {
+async function fetchPromotionsPage({ userId, city, scopeAll, limit = 12, feed = null }) {
   const now = new Date();
   const promotions = await prisma.promotion.findMany({
     where: {
@@ -98,7 +99,8 @@ async function fetchPromotionsPage({ userId, city, scopeAll, limit = 12 }) {
       status: 'ACTIVE',
       startAt: { lte: now },
       endAt: { gt: now },
-      ...(city && !scopeAll
+      ...(feed ? eventScopeWhere(feed) : {}),
+      ...(!feed && city && !scopeAll
         ? {
             OR: [
               { targetCity: null },
@@ -183,30 +185,39 @@ export async function buildHomeBootstrap(req) {
   const promoLimit = Math.min(Math.max(parseInt(req.query.promoLimit, 10) || 12, 1), 20);
   const featuredLimit = Math.min(Math.max(parseInt(req.query.featuredLimit, 10) || 5, 1), 12);
   const userId = req.userId || null;
-  const city = await resolveCity({ userId, overrideCity, scopeAll, geo });
+  const feed = await resolveFeedScope(req);
+  const city = feed ? '' : await resolveCity({ userId, overrideCity, scopeAll, geo });
+
+  const scopedSections = (scope) =>
+    Promise.allSettled([
+      buildTableOfferings({
+        userId,
+        limit: tableLimit,
+        sessionSeed: `${sessionId}|${new Date().toISOString().slice(0, 10)}|tables`,
+        feed: scope,
+      }),
+      fetchPromotionsPage({ userId, city, scopeAll: scopeAll || !!geo, limit: promoLimit, feed: scope }),
+      buildCommunityHostedEvents({ limit: 12, userId, feed: scope }),
+      fetchFeaturedEventDetails({ limit: featuredLimit, feed: scope }),
+    ]);
 
   // Isolate failures so promotions/geo errors cannot wipe Available Tables.
-  const [
-    announcementsRes,
-    tableRes,
-    promotionsRes,
-    followedRes,
-    communityRes,
-    featuredRes,
-    feedRes,
-  ] = await Promise.allSettled([
+  const [announcementsRes, followedRes, feedRes, sectionsRes] = await Promise.allSettled([
     fetchAnnouncements(),
-    buildTableOfferings({
-      userId,
-      limit: tableLimit,
-      sessionSeed: `${sessionId}|${new Date().toISOString().slice(0, 10)}|tables`,
-    }),
-    fetchPromotionsPage({ userId, city, scopeAll: scopeAll || !!geo, limit: promoLimit }),
     userId ? fetchFollowedPromoters(userId) : Promise.resolve([]),
-    buildCommunityHostedEvents({ limit: 12, userId }),
-    fetchFeaturedEventDetails({ limit: featuredLimit }),
     buildHomeFeedPage(req),
+    scopedSections(feed),
   ]);
+  let sections = sectionsRes.status === 'fulfilled' ? sectionsRes.value : [];
+  const feedValue = feedRes.status === 'fulfilled' ? feedRes.value : null;
+  // Keep every Home section on the same scope the feed fell back to (shown to the user as a banner).
+  if (feed && feedValue?.widened && feedValue.feedScope && feedValue.feedScope !== feed.scope) {
+    const widenedFeed = { ...feed, scope: feedValue.feedScope, geo: null, city: null };
+    sections = await scopedSections(widenedFeed);
+  }
+  const [tableRes, promotionsRes, communityRes, featuredRes] = sections.length
+    ? sections
+    : Array.from({ length: 4 }, () => ({ status: 'rejected' }));
 
   return {
     announcements: announcementsRes.status === 'fulfilled' ? announcementsRes.value : [],

@@ -15,6 +15,7 @@ import { Loader2, Ticket } from 'lucide-react';
 import { toast } from 'sonner';
 import { isEventEnded } from '@/lib/eventLifecycle';
 import { SERVICE_FEE_LABEL, serviceFeeForSubtotal, totalWithServiceFee } from '@/lib/serviceFee';
+import ChargedInZarNote from '@/components/checkout/ChargedInZarNote';
 
 export default function EventEntranceCheckout() {
   const [params] = useSearchParams();
@@ -213,6 +214,7 @@ export default function EventEntranceCheckout() {
               R{totalPrice.toFixed(2)}
             </span>
           </div>
+          <ChargedInZarNote amountZar={totalPrice} style={{ textAlign: 'right' }} />
         </div>
 
         <RefundPolicyNote style={{ marginTop: 16 }} />

@@ -33,6 +33,8 @@ import ReportDialog from '@/components/moderation/ReportDialog';
 import { useActiveVenueOptional } from '@/context/ActiveVenueContext';
 import { instagramHandle, instagramProfileUrl, openExternalUrl, websiteHref } from '@/lib/externalLinks';
 import { isEventEnded } from '@/lib/eventLifecycle';
+import { useMoney } from '@/hooks/useMoney';
+import { formatZar } from '@/lib/money';
 
 function spotsLeft(job) {
   return Math.max((job.totalSpots || 0) - (job.filledSpots || 0), 0);
@@ -42,13 +44,13 @@ function jobTypeBadge(jobType) {
   return String(jobType || '').replace(/_/g, ' ');
 }
 
-function compensationLine(job) {
+function compensationLine(job, fmt = formatZar) {
   if (job.compensationLabel) return job.compensationLabel;
   if (job.compensationPer === 'COMMISSION') return 'Commission based';
   if (job.compensationType === 'NEGOTIABLE') return 'Negotiable';
   if (job.compensationType === 'UNPAID_TRIAL') return 'Unpaid trial';
   if (job.compensationAmount != null) {
-    return `R${Number(job.compensationAmount).toFixed(0)} per ${String(job.compensationPer || 'MONTH').toLowerCase()}`;
+    return `${fmt(job.compensationAmount)} per ${String(job.compensationPer || 'MONTH').toLowerCase()}`;
   }
   return 'Compensation not specified';
 }
@@ -62,6 +64,7 @@ function eventDateLabel(date) {
 }
 
 function VenueEventList({ events, showAttendance = false }) {
+  const money = useMoney();
   return (
     <div className="space-y-4">
       {events.map((event, index) => (
@@ -90,7 +93,7 @@ function VenueEventList({ events, showAttendance = false }) {
                 <span>{eventDateLabel(event.date)}</span>
                 {event.start_time && <span>• {event.start_time}</span>}
                 {event.has_entrance_fee && event.entrance_fee_amount != null && (
-                  <span>• Entrance R{event.entrance_fee_amount}</span>
+                  <span>• Entrance {money.format(event.entrance_fee_amount)}</span>
                 )}
                 {showAttendance ? (
                   <span>
@@ -132,6 +135,7 @@ function setOrRemoveMeta(attrName, value, isProperty = true) {
 }
 
 export default function VenueProfile() {
+  const money = useMoney();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [searchParams] = useSearchParams();
@@ -618,7 +622,7 @@ export default function VenueProfile() {
                         <span className="inline-block mt-1 px-2 py-0.5 rounded-md text-xs bg-[#262629] text-gray-300 capitalize">
                           {jobTypeBadge(job.jobType)}
                         </span>
-                        <p className="text-sm text-[var(--sec-success)] mt-2">{compensationLine(job)}</p>
+                        <p className="text-sm text-[var(--sec-success)] mt-2">{compensationLine(job, money.format)}</p>
                         <p className="text-sm text-gray-400 mt-1">
                           {spotsLeft(job)} spot{spotsLeft(job) === 1 ? '' : 's'} left
                         </p>

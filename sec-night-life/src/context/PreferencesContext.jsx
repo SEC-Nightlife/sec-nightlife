@@ -4,11 +4,24 @@ import { useAuth } from '@/lib/AuthContext';
 import { apiPatch } from '@/api/client';
 
 const STORAGE_KEY = 'sec-preferences';
+export const FEED_SCOPES = ['local', 'national', 'worldwide'];
+
+function normalizeFeedScope(v) {
+  return FEED_SCOPES.includes(v) ? v : 'local';
+}
+
+function normalizeCurrency(v) {
+  return typeof v === 'string' && /^[A-Z]{3}$/.test(v) ? v : null;
+}
 const PRIVACY_KEY = 'sec-privacy-settings';
 
 const defaultPrefs = {
   theme: 'dark',
   language: 'en',
+  /** What feeds show: near me, my country, or everywhere. */
+  feedScope: 'local',
+  /** ISO 4217 display currency; null follows the user's country. Charges stay in ZAR. */
+  displayCurrency: null,
   notifications: {
     enabled: true,
     push: {
@@ -48,6 +61,8 @@ function loadFromStorage() {
     return {
       theme: ['dark', 'light'].includes(parsed.theme) ? parsed.theme : defaultPrefs.theme,
       language: parsed.language || defaultPrefs.language,
+      feedScope: normalizeFeedScope(parsed.feedScope),
+      displayCurrency: normalizeCurrency(parsed.displayCurrency),
       notifications: {
         enabled: notif.enabled ?? defaultPrefs.notifications.enabled,
         push: { ...defaultPrefs.notifications.push, ...(notif.push && typeof notif.push === 'object' ? notif.push : {}) },
@@ -98,7 +113,7 @@ function applyThemeToDocument(theme) {
   root.style.colorScheme = theme;
 }
 
-const PreferencesContext = createContext(null);
+export const PreferencesContext = createContext(null);
 
 export function PreferencesProvider({ children }) {
   const { isAuthenticated, userProfile } = useAuth();
@@ -129,6 +144,15 @@ export function PreferencesProvider({ children }) {
           push: { ...p.notifications.push, ...(notif.push || {}) },
           email: { ...p.notifications.email, ...(notif.email || {}) },
         },
+      }));
+    }
+    const apiPrefs = userProfile.app_preferences;
+    if (apiPrefs && typeof apiPrefs === 'object' && (apiPrefs.feedScope || apiPrefs.displayCurrency !== undefined)) {
+      setPrefsState((p) => ({
+        ...p,
+        feedScope: apiPrefs.feedScope ? normalizeFeedScope(apiPrefs.feedScope) : p.feedScope,
+        displayCurrency:
+          apiPrefs.displayCurrency !== undefined ? normalizeCurrency(apiPrefs.displayCurrency) : p.displayCurrency,
       }));
     }
     if (userProfile.app_preferences?.location) {
@@ -176,12 +200,23 @@ export function PreferencesProvider({ children }) {
           location: prefs.location,
           language: prefs.language,
           theme: prefs.theme,
+          feedScope: prefs.feedScope,
+          displayCurrency: prefs.displayCurrency,
         },
         privacy_settings: privacy,
       }).catch(() => {});
     }, 700);
     return () => clearTimeout(timer);
-  }, [prefs.notifications, prefs.location, prefs.language, privacy, hydrated, isAuthenticated]);
+  }, [
+    prefs.notifications,
+    prefs.location,
+    prefs.language,
+    prefs.feedScope,
+    prefs.displayCurrency,
+    privacy,
+    hydrated,
+    isAuthenticated,
+  ]);
 
   const requestGeoCoords = useCallback(async () => {
     const { getCurrentLocation } = await import('@/lib/getCurrentLocation');
@@ -255,6 +290,14 @@ export function PreferencesProvider({ children }) {
     }));
   }, []);
 
+  const setFeedScope = useCallback((scope) => {
+    setPrefsState((p) => ({ ...p, feedScope: normalizeFeedScope(scope) }));
+  }, []);
+
+  const setDisplayCurrency = useCallback((code) => {
+    setPrefsState((p) => ({ ...p, displayCurrency: normalizeCurrency(code) }));
+  }, []);
+
   const setPrivacySetting = useCallback((key, value) => {
     setPrivacyState((p) => ({ ...p, [key]: value }));
   }, []);
@@ -266,6 +309,10 @@ export function PreferencesProvider({ children }) {
     language: prefs.language,
     notifications: prefs.notifications,
     location: prefs.location,
+    feedScope: prefs.feedScope,
+    displayCurrency: prefs.displayCurrency,
+    viewerCountryCode: userProfile?.country_code || null,
+    viewerCity: userProfile?.city || null,
     privacy,
     geoCoords,
     requestGeoCoords,
@@ -275,6 +322,8 @@ export function PreferencesProvider({ children }) {
     setLanguage,
     setNotification,
     setLocation,
+    setFeedScope,
+    setDisplayCurrency,
     setPrivacySetting,
     t: tKey,
     hydrated,

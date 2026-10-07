@@ -4,6 +4,7 @@ import { parseMenuItemLines } from './orderFulfillment.js';
 import { isRefundedPaymentRef, loadRefundedPaymentRefs } from './refunds.js';
 import { currentClockSast, formatYmdSast } from './dayBookingWindows.js';
 import { netOfServiceFee } from './serviceFee.js';
+import { DEFAULT_TIMEZONE, calendarParts } from './timezone.js';
 
 const CSV_BOM = '\uFEFF';
 
@@ -99,15 +100,15 @@ export function purchaseLogFilename(event) {
   return `purchase-log-${title}-${date}.xlsx`;
 }
 
-export function formatEventDateLabel(date) {
+export function formatEventDateLabel(date, tz = DEFAULT_TIMEZONE) {
   if (!date) return '';
   const d = date instanceof Date ? date : new Date(date);
   if (Number.isNaN(d.getTime()) && typeof date === 'string' && /^\d{4}-\d{2}-\d{2}/.test(date)) {
     const parts = date.slice(0, 10).split('-');
-    const named = new Date(`${parts[0]}-${parts[1]}-${parts[2]}T12:00:00+02:00`);
+    const named = new Date(Date.UTC(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]), 12));
     if (!Number.isNaN(named.getTime())) {
       return named.toLocaleDateString('en-ZA', {
-        timeZone: 'Africa/Johannesburg',
+        timeZone: 'UTC',
         day: 'numeric',
         month: 'short',
         year: 'numeric',
@@ -115,8 +116,9 @@ export function formatEventDateLabel(date) {
     }
   }
   if (Number.isNaN(d.getTime())) return String(date).slice(0, 10);
-  return d.toLocaleDateString('en-ZA', {
-    timeZone: 'Africa/Johannesburg',
+  const cal = calendarParts(d, tz);
+  return new Date(Date.UTC(cal.year, cal.month - 1, cal.day, 12)).toLocaleDateString('en-ZA', {
+    timeZone: 'UTC',
     day: 'numeric',
     month: 'short',
     year: 'numeric',

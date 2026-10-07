@@ -21,6 +21,7 @@ import RefundPolicyNote from '@/components/legal/RefundPolicyNote';
 import { useQueryClient } from '@tanstack/react-query';
 import { launchPaystackInline } from '@/lib/paystackInline';
 import { completePaystackCheckout } from '@/lib/completePaystackCheckout';
+import ChargedInZarNote from '@/components/checkout/ChargedInZarNote';
 
 export default function TablePayment() {
   const navigate = useNavigate();
@@ -230,6 +231,7 @@ export default function TablePayment() {
               <span className="text-lg font-semibold">Total Amount</span>
               <span className="text-2xl font-bold text-[var(--sec-success)]">R{totalAmount.toLocaleString()}</span>
             </div>
+            <ChargedInZarNote amountZar={totalAmount} style={{ textAlign: 'right' }} />
           </div>
         </div>
 

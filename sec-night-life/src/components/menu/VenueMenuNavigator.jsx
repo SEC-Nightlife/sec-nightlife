@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { Search, Minus, Plus } from 'lucide-react';
 import { buildMenuHierarchy, filterMenuBySearch } from '@/lib/groupMenuHierarchy';
 import MenuItemImagePreview from '@/components/menu/MenuItemImagePreview';
+import { useMoney } from '@/hooks/useMoney';
 
 function normalizeItem(item) {
   return {
@@ -80,6 +81,7 @@ export default function VenueMenuNavigator({
   venueLogoUrl,
   renderManageActions,
 }) {
+  const money = useMoney();
   const [search, setSearch] = useState('');
   const [topCategory, setTopCategory] = useState(null);
   const [subCategory, setSubCategory] = useState('All');
@@ -291,7 +293,7 @@ export default function VenueMenuNavigator({
                   </div>
                 ) : null}
                 <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--sec-accent)', marginTop: 4 }}>
-                  R{item.price.toFixed(0)}
+                  {money.format(item.price)}
                 </div>
               </div>
               {mode === 'cart' && onChange ? (
