@@ -2,7 +2,7 @@ import { prisma } from './prisma.js';
 import { logger } from './logger.js';
 import { splitPlatformGross } from './platformSplit.js';
 import { FEED_BOOST_ZAR_PER_DAY, clampBoostDays } from './feedBoost.js';
-import { PAYOUT_MIN_ZAR, groupPayoutRowsByRecipient } from './payoutSchedule.js';
+import { PAYOUT_MIN_ZAR, groupPayoutRowsByRecipient, venueTicketPayoutReady } from './payoutSchedule.js';
 import { netOfServiceFee } from './serviceFee.js';
 
 export { splitPlatformGross, splitPlatformGross as splitSecPlatform } from './platformSplit.js';
@@ -260,8 +260,47 @@ async function sendBatchTransfer(batchId, paystackRecipientCode) {
 }
 
 /**
+ * Drop venue ticket-share rows whose event has not ended.
+ * The R5 service-fee ledger is a separate platform row and is not in this set.
+ * Rows left out stay PENDING for a later Monday.
+ */
+export async function rowsReadyForWeeklyTransfer(rows, now = new Date()) {
+  const refs = [...new Set(rows.map((row) => row.paymentReference).filter(Boolean))];
+  if (!refs.length) return rows;
+  const payments = await prisma.payment.findMany({
+    where: { reference: { in: refs } },
+    select: { reference: true, type: true, metadata: true },
+  });
+  const byRef = new Map(payments.map((payment) => [payment.reference, payment]));
+  const eventIds = [];
+  for (const payment of payments) {
+    const meta = flattenPaymentMetadata(payment.metadata);
+    const type = String(meta.type || payment.type || '');
+    if (type !== 'ticket' && type !== 'event') continue;
+    const eventId = meta.event_id || meta.eventId;
+    if (eventId) eventIds.push(String(eventId));
+  }
+  const events = eventIds.length
+    ? await prisma.event.findMany({
+      where: { id: { in: [...new Set(eventIds)] } },
+      select: { id: true, endsAt: true, date: true, startTime: true, timezone: true },
+    })
+    : [];
+  const byEvent = new Map(events.map((event) => [event.id, event]));
+  return rows.filter((row) => {
+    const payment = byRef.get(row.paymentReference);
+    if (!payment) return true;
+    const meta = flattenPaymentMetadata(payment.metadata);
+    const type = String(meta.type || payment.type || '');
+    const eventId = String(meta.event_id || meta.eventId || '');
+    return venueTicketPayoutReady({ ...meta, type }, byEvent.get(eventId) || null, now);
+  });
+}
+
+/**
  * Weekly payout run (Monday cron): group unbatched PENDING recipient rows and send
  * one transfer per venue/user whose total is at least PAYOUT_MIN_ZAR. Smaller totals carry over.
+ * Ticket shares whose event has not ended stay PENDING.
  */
 export async function runWeeklyPayoutBatches({ minZar = PAYOUT_MIN_ZAR, limit = 5000 } = {}) {
   await requeueRetryableFailedPayouts({ limit: 500 });
@@ -277,6 +316,7 @@ export async function runWeeklyPayoutBatches({ minZar = PAYOUT_MIN_ZAR, limit = 
     take: Math.min(limit, 10000),
     select: {
       id: true,
+      paymentReference: true,
       recipientType: true,
       recipientUserId: true,
       recipientVenueId: true,
@@ -284,9 +324,11 @@ export async function runWeeklyPayoutBatches({ minZar = PAYOUT_MIN_ZAR, limit = 
     },
   });
 
-  const { eligible, carriedOver } = groupPayoutRowsByRecipient(rows, minZar);
+  const payableRows = await rowsReadyForWeeklyTransfer(rows);
+  const { eligible, carriedOver } = groupPayoutRowsByRecipient(payableRows, minZar);
   const summary = {
     scannedRows: rows.length,
+    heldUntilEvent: rows.length - payableRows.length,
     recipients: eligible.length + carriedOver.length,
     carriedOver: carriedOver.length,
     batched: 0,

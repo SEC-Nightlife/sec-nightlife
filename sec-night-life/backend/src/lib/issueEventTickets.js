@@ -80,6 +80,36 @@ async function syncTierSoldFromTickets(db, eventId, ticketTier) {
 
 export { syncTierSoldFromTickets as restoreTicketTierInventoryFromTickets };
 
+/**
+ * Next tier inventory after issuing `increment` tickets.
+ * A missing or non-numeric quantity means the tier is uncapped.
+ * Refuses the write when sold + increment would pass a numeric cap.
+ */
+export function planTierSoldUpdate(tiers, ticketTier, increment) {
+  const list = normalizeTicketTiers(tiers);
+  const row = list.find((t) => t.name === ticketTier);
+  if (!row) return { ok: false, reason: 'tier_not_found' };
+  const add = Math.max(0, Number(increment) || 0);
+  const sold = Number(row.sold) || 0;
+  const cap = Number(row.quantity);
+  if (Number.isFinite(cap) && sold + add > cap) {
+    return { ok: false, reason: 'sold_out', sold, quantity: cap };
+  }
+  return {
+    ok: true,
+    tiers: list.map((t) => (t.name === ticketTier ? { ...t, sold: sold + add } : t)),
+  };
+}
+
+/** Write tier JSON only if it is still the snapshot we just read. */
+async function writeTierSoldIfUnchanged(tx, eventId, previousTiers, nextTiers) {
+  const result = await tx.event.updateMany({
+    where: { id: eventId, ticketTiers: { equals: previousTiers } },
+    data: { ticketTiers: nextTiers },
+  });
+  return result.count === 1;
+}
+
 function ticketPayoutAmounts(amount, metadata) {
   const grossZar = Number(amount || 0);
   let eSec;
@@ -253,6 +283,11 @@ export async function issueEventTicketsFromPayment(db, {
   const issuedTickets = [];
   let issued = 0;
 
+  let inventoryAttempt = 0;
+  while (inventoryAttempt < 2) {
+  inventoryAttempt += 1;
+  issued = 0;
+  issuedTickets.length = 0;
   try {
   await db.$transaction(async (tx) => {
     const cap = parseMaxPerUser(tierRow);
@@ -270,11 +305,18 @@ export async function issueEventTicketsFromPayment(db, {
     }
     if (soldIncrement > 0) {
       const fresh = await tx.event.findUnique({ where: { id: event.id }, select: { ticketTiers: true } });
-      const freshTiers = normalizeTicketTiers(fresh?.ticketTiers);
-      const updatedTiers = freshTiers.map((t) =>
-        t.name === ticketTier ? { ...t, sold: (Number(t.sold) || 0) + soldIncrement } : t,
-      );
-      await tx.event.update({ where: { id: event.id }, data: { ticketTiers: updatedTiers } });
+      const planned = planTierSoldUpdate(fresh?.ticketTiers, ticketTier, soldIncrement);
+      if (!planned.ok) {
+        const err = new Error('Not enough tickets available');
+        err.code = planned.reason === 'sold_out' ? 'SOLD_OUT' : 'TIER_NOT_FOUND';
+        throw err;
+      }
+      const wrote = await writeTierSoldIfUnchanged(tx, event.id, fresh?.ticketTiers ?? null, planned.tiers);
+      if (!wrote) {
+        const err = new Error('Ticket inventory changed');
+        err.code = 'TIER_SOLD_CONFLICT';
+        throw err;
+      }
     }
 
     for (let i = 0; i < qty; i += 1) {
@@ -319,12 +361,24 @@ export async function issueEventTicketsFromPayment(db, {
       issued += 1;
     }
   });
+  break;
   } catch (err) {
-    if (err?.code === 'PER_USER_CAP' || err?.cause?.code === 'PER_USER_CAP') {
+    const code = err?.code || err?.cause?.code;
+    if (code === 'TIER_SOLD_CONFLICT' && inventoryAttempt < 2) continue;
+    if (code === 'PER_USER_CAP') {
       logger.warn('issueEventTickets: per-user cap exceeded', { eventId, ticketTier, userId, reference });
       return { issued: 0, skipped: true, reason: 'per_user_cap', error: err.message };
     }
+    if (code === 'SOLD_OUT') {
+      logger.warn('issueEventTickets: tier sold out at issue time', { eventId, ticketTier, userId, reference });
+      return { issued: 0, skipped: true, reason: 'sold_out', error: err.message };
+    }
+    if (code === 'TIER_SOLD_CONFLICT') {
+      logger.warn('issueEventTickets: tier inventory conflict', { eventId, ticketTier, userId, reference });
+      return { issued: 0, skipped: true, reason: 'sold_conflict', error: err.message };
+    }
     throw err;
+  }
   }
 
   // Always ensure venue payout ledger when tickets exist (not gated on notifications).

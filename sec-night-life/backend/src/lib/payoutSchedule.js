@@ -2,11 +2,24 @@
  * Weekly batched payout schedule for venue/host Sec Wallet earnings.
  * Cron: backend/vercel.json `/api/cron/weekly-payouts` at 07:00 UTC Monday (09:00 SAST).
  */
+import { eventHasEnded } from './ticketHelpers.js';
 export const PAYOUT_MIN_ZAR = 50;
 /** 0 = Sunday … 1 = Monday (UTC). */
 export const PAYOUT_WEEKDAY = 1;
 export const PAYOUT_HOUR_UTC = 7;
 export const PAYOUT_SCHEDULE = 'weekly_monday';
+
+/**
+ * Venue ticket share waits until the event has ended.
+ * Promotions, boosts, tables, and any non-ticket row stay on the weekly schedule.
+ * A ticket row with no event record stays held so money is not sent before the show.
+ */
+export function venueTicketPayoutReady(meta, event, now = new Date()) {
+  const type = String(meta?.type || '');
+  if (type !== 'ticket' && type !== 'event') return true;
+  if (!event) return false;
+  return eventHasEnded(event, now);
+}
 
 /** Next payout run at or after `from` (returns `from`'s run if it hasn't happened yet). */
 export function nextPayoutDate(from = new Date()) {

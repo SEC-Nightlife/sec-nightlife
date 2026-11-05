@@ -171,6 +171,18 @@ export async function evaluateTicketEntryValidity(tx, ticket) {
   return { ok: true };
 }
 
+/** One scan wins. A zero-row conditional update means another scanner already admitted it. */
+export function admitClaimOutcome(count, admittedAt) {
+  if (count === 1) return { claimed: true };
+  return {
+    claimed: false,
+    ok: false,
+    status: 409,
+    error: 'Already admitted',
+    admitted_at: admittedAt || null,
+  };
+}
+
 /**
  * @param {import('@prisma/client').Prisma.TransactionClient | typeof prisma} tx
  */
@@ -215,13 +227,20 @@ export async function admitTicketTx(tx, { ticketId, staffUserId, staffRole }) {
   const linkedEventId = await resolveLinkedEventId(tx, t);
   const eventIdForAttendance = t.eventId || linkedEventId;
 
-  await tx.ticket.update({
-    where: { id: t.id },
+  const claimed = await tx.ticket.updateMany({
+    where: { id: t.id, admittedAt: null },
     data: {
       admittedAt: now,
       admittedByUserId: staffUserId,
     },
   });
+  if (claimed.count !== 1) {
+    const latest = await tx.ticket.findUnique({
+      where: { id: t.id },
+      select: { admittedAt: true },
+    });
+    return admitClaimOutcome(0, latest?.admittedAt || t.admittedAt);
+  }
 
   if (eventIdForAttendance && t.userId) {
     await tx.eventAttendance.upsert({
