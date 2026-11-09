@@ -5,6 +5,7 @@ import { TICKET_PLATFORM_FEE_RATE } from './platformSplit.js';
 import { planTierSoldUpdate } from './issueEventTickets.js';
 import { admitClaimOutcome, admitTicketTx } from './ticketAdmit.js';
 import { venueTicketPayoutReady } from './payoutSchedule.js';
+import { staffPermissionOk, VENUE_STAFF_PERMISSION_KEYS } from './access.js';
 
 const VAT = 1.15;
 const TRANSFER_ZAR = 3;
@@ -129,6 +130,21 @@ test('two door scans of the same QR cannot both admit', async () => {
   assert.equal(results.filter((result) => result.status === 409).length, 1);
   assert.equal(results.find((result) => result.status === 409).error, 'Already admitted');
   assert.ok(ticket.admittedAt instanceof Date);
+});
+
+test('booking staff and full-access staff may record entry', () => {
+  const bookingsTeam = {
+    dashboard: true,
+    bookings: true,
+    messages: true,
+    venue_tables: true,
+    seating_plans: true,
+    refund_requests: true,
+  };
+  const fullAccess = Object.fromEntries(VENUE_STAFF_PERMISSION_KEYS.map((key) => [key, true]));
+  assert.equal(staffPermissionOk(bookingsTeam, 'bookings'), true);
+  assert.equal(staffPermissionOk(fullAccess, 'bookings'), true);
+  assert.equal(staffPermissionOk({ menu: true, jobs: true }, 'bookings'), false);
 });
 
 test('venue ticket payout waits until the event has ended', () => {

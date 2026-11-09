@@ -593,8 +593,8 @@ export default function TicketVerify() {
               <p className="text-xs text-gray-500 mb-4 leading-relaxed">
                 {!payload.viewer_authenticated ? (
                   <>
-                    Anyone can view this ticket by scanning the QR — no login required. Venue staff: sign in on this
-                    device to record entry at the door.
+                    Anyone can view this ticket by scanning the QR — no login required. Venue owner or booking
+                    staff: sign in on this device to record entry at the door.
                   </>
                 ) : payload.admit_denied_for_viewer ? (
                   <>{payload.admit_denied_reason || 'This account cannot record entry for this ticket.'}</>

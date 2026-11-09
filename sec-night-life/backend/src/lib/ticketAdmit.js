@@ -1,5 +1,5 @@
 import { prisma } from './prisma.js';
-import { isStaff } from './access.js';
+import { isStaff, staffHasVenuePermission } from './access.js';
 import { buildTicketDoorContext } from './ticketDoorContext.js';
 import { ticketExpiresAtFromRow } from './ticketHelpers.js';
 
@@ -63,6 +63,8 @@ export async function assertAdmitPermission(tx, staffUserId, staffRole, ticket, 
       select: { ownerUserId: true },
     });
     if (v?.ownerUserId === staffUserId) return { ok: true };
+    // Bookings team and full access both include the bookings permission.
+    if (await staffHasVenuePermission(staffUserId, door.venue_id, 'bookings')) return { ok: true };
   }
 
   if (ticket.housePartyId) {
@@ -89,7 +91,7 @@ export async function assertAdmitPermission(tx, staffUserId, staffRole, ticket, 
     if (tb?.hostUserId === staffUserId) return { ok: true };
   }
 
-  return { ok: false, reason: 'You are not allowed to admit this ticket (venue owner, table host, party host, or staff only).' };
+  return { ok: false, reason: 'You are not allowed to admit this ticket (venue owner, booking staff, table host, party host, or SEC staff only).' };
 }
 
 /**
