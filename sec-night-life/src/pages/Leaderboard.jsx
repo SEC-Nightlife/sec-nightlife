@@ -35,14 +35,14 @@ export default function Leaderboard() {
 
   if (isLoading) {
     return (
-      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: 'var(--sec-bg-base)' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: 'var(--sec-bg-base)', padding: '48px 0' }}>
         <div className="sec-spinner" />
       </div>
     );
   }
 
   return (
-    <div style={{ minHeight: '100vh', backgroundColor: 'var(--sec-bg-base)', padding: 'var(--space-6)' }}>
+    <div style={{ backgroundColor: 'var(--sec-bg-base)', padding: 'var(--space-6)' }}>
       <div style={{ maxWidth: 900, margin: '0 auto' }}>
         <div style={{ textAlign: 'center', marginBottom: 40 }}>
           <div style={{ display: 'inline-flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>

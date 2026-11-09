@@ -129,6 +129,61 @@ export function shouldShowMobileBackHeader(pageName) {
   return true;
 }
 
+/**
+ * Pages that already paint env(safe-area-inset-top) in their own header.
+ * The shell must not add a second top inset on these.
+ */
+const PAGES_WITH_OWN_STATUS_INSET = new Set([
+  'Home',
+  'Events',
+  'Jobs',
+  'Explore',
+  'Tables',
+  'VendorDetail',
+  'TableJoinOnboarding',
+  'HostDashboard',
+  'Login',
+  'TicketVerify',
+  'Messages',
+  'BusinessMessages',
+  'Vendors',
+  'VendorBusinessSettings',
+  'Notifications',
+  'JobDetails',
+  'ChatRoom',
+  'Friends',
+  'Settings',
+  'HelpCenter',
+  'HelpGuides',
+  'HelpArticle',
+  'Privacy',
+  'CreateJob',
+  'AppPreferences',
+  'ChangePassword',
+  'ChangeEmail',
+  'BusinessEvents',
+  'BusinessJobs',
+  'BusinessBookings',
+  'BusinessRefundRequests',
+  'BusinessMenu',
+  'BusinessPromotions',
+  'BusinessVenueTables',
+  'BusinessVenueSeatingPlans',
+  'VenueAnalytics',
+  'FeedbackInsights',
+  'StaffDashboard',
+  'Profile',
+  'UserProfile',
+  'VenueOnboarding',
+  'TicketCheckout',
+  'EventEntranceCheckout',
+]);
+
+export function pageDrawsOwnStatusBarPadding(pageName, showLayoutBackHeader) {
+  if (showLayoutBackHeader) return true;
+  return PAGES_WITH_OWN_STATUS_INSET.has(pageName);
+}
+
 export function getMobilePageTitle(pageName) {
   if (!pageName) return '';
   return MOBILE_PAGE_TITLES[pageName] || pageName.replace(/([A-Z])/g, ' $1').trim();

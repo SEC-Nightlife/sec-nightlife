@@ -14,7 +14,7 @@ import MobileBottomNav from '@/components/layout/MobileBottomNav';
 import MobileMoreSheet from '@/components/layout/MobileMoreSheet';
 import PageBackHeader from '@/components/layout/PageBackHeader';
 import { useIsMobile } from '@/hooks/useIsDesktop';
-import { shouldShowMobileBackHeader, getMobilePageTitle } from '@/lib/mobilePageShell';
+import { shouldShowMobileBackHeader, getMobilePageTitle, pageDrawsOwnStatusBarPadding } from '@/lib/mobilePageShell';
 import { BUSINESS_PAGE_PERMISSIONS, useVenueStaffAccess } from '@/hooks/useVenueStaffAccess';
 import { useBusinessVenueScope } from '@/hooks/useBusinessVenueScope';
 import { getMobileNavState } from '@/lib/mobileNavVisibility';
@@ -651,14 +651,30 @@ export default function Layout({ children, currentPageName }) {
               ? 'pb-[calc(84px+env(safe-area-inset-bottom))]'
               : ''
         }`}
-        style={
-          isMobile && !pageHidesNav
-            ? { scrollPaddingBottom: MOBILE_MAIN_PADDING_BOTTOM }
-            : undefined
-        }
+        style={(() => {
+          const showComplianceBanner =
+            complianceAccess.canReview &&
+            currentPageName !== 'AdminDashboard' &&
+            currentPageName !== 'Profile';
+          const shellNeedsTopInset =
+            isMobile &&
+            !showComplianceBanner &&
+            !pageDrawsOwnStatusBarPadding(currentPageName, showLayoutBackHeader);
+          const style = {};
+          if (isMobile && !pageHidesNav) style.scrollPaddingBottom = MOBILE_MAIN_PADDING_BOTTOM;
+          if (shellNeedsTopInset) style.paddingTop = 'env(safe-area-inset-top)';
+          return Object.keys(style).length ? style : undefined;
+        })()}
       >
         {complianceAccess.canReview && currentPageName !== 'AdminDashboard' && currentPageName !== 'Profile' && (
-          <div className="lg:hidden" style={{ padding: '12px 16px 0' }}>
+          <div
+            className="lg:hidden"
+            style={{
+              paddingTop: 'max(12px, env(safe-area-inset-top))',
+              paddingLeft: 'max(16px, env(safe-area-inset-left))',
+              paddingRight: 'max(16px, env(safe-area-inset-right))',
+            }}
+          >
             <button
               type="button"
               onClick={() => {

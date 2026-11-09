@@ -24,6 +24,13 @@ export async function initNativeShell() {
     const { StatusBar, Style } = await import('@capacitor/status-bar');
     await StatusBar.setStyle({ style: Style.Dark });
     await StatusBar.setBackgroundColor({ color: '#000000' });
+    if (Capacitor.getPlatform() === 'android') {
+      try {
+        await StatusBar.setOverlaysWebView({ overlay: false });
+      } catch (overlayErr) {
+        console.warn('[native] status bar overlay:', overlayErr?.message || overlayErr);
+      }
+    }
   } catch (err) {
     console.warn('[native] status bar:', err?.message || err);
   }
