@@ -1,5 +1,6 @@
 import { prisma } from './prisma.js';
 import { notifyPaymentSuccess } from './paymentNotifications.js';
+import { expectedPlatformProductAmountZar } from './paystackPayout.js';
 
 const PROMO_MS_DAY = 24 * 60 * 60 * 1000;
 const MAX_PROMO_SPAN_MS = 30 * PROMO_MS_DAY;
@@ -73,6 +74,23 @@ export async function activatePromotionAfterPublishPayment({
   if (!scheduleValid) {
     startAt = now;
     endAt = new Date(now.getTime() + publishDays * PROMO_MS_DAY);
+  }
+
+  const spanDays = Math.max(1, Math.ceil((endAt.getTime() - startAt.getTime()) / PROMO_MS_DAY));
+  const paid = reference
+    ? await prisma.payment.findUnique({
+        where: { reference: String(reference) },
+        select: { amount: true },
+      })
+    : null;
+  const charged = Number(paid?.amount) || 0;
+  const expected = expectedPlatformProductAmountZar({
+    type: 'PROMOTION_PUBLISH',
+    publish_days: Math.max(spanDays, publishDays),
+    boost_days: boostDays,
+  });
+  if (charged + 0.02 < expected) {
+    return { activated: false, promotion: existingPromo, reason: 'underpaid' };
   }
 
   const boostData =

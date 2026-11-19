@@ -60,9 +60,10 @@ https://secnightlife.com/PrivacyPolicy
 
 ## Screenshots
 
-Upload PNGs from [`screenshots/`](screenshots/) — 6.7" iPhone (1290×2796).
+- iPhone: [`screenshots/`](screenshots/) — 1284×2778 (6.5"/6.7" slot)
+- iPad 12.9"/13": [`ipad-13-screenshots/`](ipad-13-screenshots/) — **2064×2752**
 
-Recommended order:
+Recommended order (up to 10):
 1. Home (party-goer)
 2. Events or Explore
 3. Profile / Tickets

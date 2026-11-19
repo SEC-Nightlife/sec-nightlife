@@ -8,6 +8,7 @@ import crypto from 'crypto';
 import rateLimit from 'express-rate-limit';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
+import { HOUSE_PARTY_BOOST_ZAR, HOUSE_PARTY_PUBLISH_ZAR } from '../lib/paystackPayout.js';
 import { authenticateToken, optionalAuth } from '../middleware/auth.js';
 import { requireVerified } from '../middleware/requireVerified.js';
 import { createInAppNotification } from '../lib/inAppNotifications.js';
@@ -1010,7 +1011,7 @@ router.post('/parties/:partyId/publish', authenticateToken, requireVerified, asy
     });
     const pay = await initializePaystackPayment({
       userId: req.userId,
-      amountZar: 100,
+      amountZar: HOUSE_PARTY_PUBLISH_ZAR,
       metadata: { type: 'HOUSE_PARTY_PUBLISH', housePartyId: party.id, user_id: req.userId },
     });
     res.json(pay);
@@ -1028,7 +1029,7 @@ router.post('/parties/:partyId/boost', authenticateToken, requireVerified, async
     if (party.status !== 'PUBLISHED') return res.status(400).json({ error: 'Only published parties can be boosted' });
     const pay = await initializePaystackPayment({
       userId: req.userId,
-      amountZar: 150,
+      amountZar: HOUSE_PARTY_BOOST_ZAR,
       metadata: { type: 'HOUSE_PARTY_BOOST', housePartyId: party.id, user_id: req.userId },
     });
     res.json(pay);

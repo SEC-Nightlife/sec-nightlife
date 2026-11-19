@@ -167,24 +167,37 @@ app.post('/api/payments/paystack/webhook', express.raw({ type: 'application/json
 app.use(express.json({ limit: '1mb' }));
 app.use(express.urlencoded({ extended: true, limit: '1mb' }));
 
-// Rate limiting (Redis-backed when UPSTASH_* env is set)
-const rateLimitStore = createRedisRateLimitStore({ prefix: 'sec-rl' });
+// Rate limiting (Redis-backed when UPSTASH_* env is set).
+// Each store must use the same window as its limiter. A shared 15-minute window
+// previously ignored the resend limiter's one-hour setting.
+const FIFTEEN_MIN = 15 * 60 * 1000;
+const ONE_HOUR = 60 * 60 * 1000;
+
+function accountRateKey(req) {
+  const email = String(req.body?.email || '').trim().toLowerCase();
+  const role = String(req.body?.role || '').trim().toUpperCase();
+  if (email) return `${email}:${role || 'any'}`;
+  const ip = String(req.ip || req.socket?.remoteAddress || 'unknown').replace(/^::ffff:/, '');
+  return ip;
+}
 
 const generalLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: isProd ? 100 : 1000,
+  windowMs: FIFTEEN_MIN,
+  // Shared venue Wi-Fi is one IP, and the app polls several routes per screen.
+  max: isProd ? 2000 : 5000,
   standardHeaders: true,
   legacyHeaders: false,
-  store: rateLimitStore,
+  store: createRedisRateLimitStore({ prefix: 'sec-rl', windowMs: FIFTEEN_MIN }),
   message: { error: 'Too many requests. Try again later.' }
 });
 
 const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: isProd ? 20 : 200,
+  windowMs: FIFTEEN_MIN,
+  // A venue Wi-Fi is one IP. 20/15min blocked a room of new signups.
+  max: isProd ? 500 : 2000,
   standardHeaders: true,
   legacyHeaders: false,
-  store: createRedisRateLimitStore({ prefix: 'sec-rl-auth' }),
+  store: createRedisRateLimitStore({ prefix: 'sec-rl-auth', windowMs: FIFTEEN_MIN }),
   message: { error: 'Too many requests. Try again in a few minutes.' },
   // Session keep-alive must not share the login brute-force budget.
   skip: (req) => {
@@ -197,30 +210,53 @@ const authLimiter = rateLimit({
   },
 });
 
-const resendLimiter = rateLimit({
-  windowMs: 60 * 60 * 1000,
-  max: isProd ? 3 : 20,
+const loginFailureLimiter = rateLimit({
+  windowMs: FIFTEEN_MIN,
+  max: isProd ? 8 : 50,
+  skipSuccessfulRequests: true,
   standardHeaders: true,
   legacyHeaders: false,
-  store: createRedisRateLimitStore({ prefix: 'sec-rl-resend' }),
-  message: { error: 'Too many verification email requests. Try again in an hour.' }
+  store: createRedisRateLimitStore({ prefix: 'sec-rl-login-fail', windowMs: FIFTEEN_MIN }),
+  keyGenerator: accountRateKey,
+  message: { error: 'Too many sign-in attempts for this email. Try again in a few minutes.' },
+});
+
+const resendAccountLimiter = rateLimit({
+  windowMs: ONE_HOUR,
+  max: isProd ? 5 : 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  store: createRedisRateLimitStore({ prefix: 'sec-rl-resend-account', windowMs: ONE_HOUR }),
+  keyGenerator: accountRateKey,
+  message: { error: 'Too many verification emails for this address. Try again in an hour.' },
+});
+
+const resendIpLimiter = rateLimit({
+  windowMs: ONE_HOUR,
+  max: isProd ? 200 : 500,
+  standardHeaders: true,
+  legacyHeaders: false,
+  store: createRedisRateLimitStore({ prefix: 'sec-rl-resend-ip', windowMs: ONE_HOUR }),
+  message: { error: 'Too many verification email requests from this network. Try again in an hour.' },
 });
 
 const paymentLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: isProd ? 20 : 100,
+  windowMs: FIFTEEN_MIN,
+  // Checkout at a venue shares one IP. Per-user abuse is still bounded by auth.
+  max: isProd ? 200 : 500,
   standardHeaders: true,
   legacyHeaders: false,
-  store: createRedisRateLimitStore({ prefix: 'sec-rl-pay' }),
+  store: createRedisRateLimitStore({ prefix: 'sec-rl-pay', windowMs: FIFTEEN_MIN }),
   message: { error: 'Too many payment requests. Try again later.' }
 });
 
 // Request logging
 app.use(requestLogger);
 
-// Routes
+// Specific limiters must run before the auth router, or the route answers first.
+app.use('/api/auth/resend-verification', resendIpLimiter, resendAccountLimiter);
+app.use('/api/auth/login', loginFailureLimiter);
 app.use('/api/auth', authLimiter, authRoutes);
-app.use('/api/auth/resend-verification', resendLimiter);
 app.use('/api/users', generalLimiter, userRoutes);
 app.use('/api/venues', generalLimiter, venueRoutes);
 app.use('/api/events', generalLimiter, eventRoutes);

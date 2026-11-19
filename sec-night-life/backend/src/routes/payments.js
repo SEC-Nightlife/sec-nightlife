@@ -102,6 +102,8 @@ import {
   applyTransferWebhookEvent,
   expectedPlatformProductAmountZar,
   EXTERNAL_HOSTED_LISTING_ZAR,
+  HOUSE_PARTY_PUBLISH_ZAR,
+  HOUSE_PARTY_BOOST_ZAR,
 } from '../lib/paystackPayout.js';
 import { ensureHostedTableLiveAfterListingPayment } from '../lib/hostedTableAfterListingPaid.js';
 import { addUserToHostedTableGroupChat } from '../lib/hostedTableGroupChat.js';
@@ -403,12 +405,21 @@ async function applyReferenceSideEffects(reference, paystackData) {
     const boostDaysRaw = metadata.boostDays ?? metadata.boost_days;
     const boostDays = Math.min(30, Math.max(1, parseInt(String(boostDaysRaw || '7'), 10) || 7));
     const boostExpiry = new Date(Date.now() + boostDays * PROMO_MS_DAY);
+    const expectedBoost = expectedPlatformProductAmountZar({
+      ...metadata,
+      type: 'BOOST',
+      boost_days: boostDays,
+    });
+    const boostPaid = expectedBoost == null || Number(amount) + 0.02 >= expectedBoost;
 
     const preBoost = await prisma.promotion.findFirst({
       where: { id: String(promoId), deletedAt: null },
       select: { boostPaystackRef: true },
     });
-    if (preBoost?.boostPaystackRef === reference) {
+    if (!boostPaid) {
+      console.error('BOOST amount mismatch', { reference, amount, expectedBoost, boostDays });
+      metadata.side_effects_error = `Boost amount mismatch: charged ${amount}, expected ${expectedBoost}`;
+    } else if (preBoost?.boostPaystackRef === reference) {
       // Idempotent: same Paystack reference already applied
     } else {
       await prisma.promotion.updateMany({
@@ -456,7 +467,7 @@ async function applyReferenceSideEffects(reference, paystackData) {
   const housePartyIdMeta = metadata.housePartyId || metadata.house_party_id;
   if (metadata.type === 'HOUSE_PARTY_PUBLISH' && housePartyIdMeta && userId) {
     const party = await prisma.houseParty.findFirst({ where: { id: String(housePartyIdMeta) } });
-    if (party && party.hostUserId === userId) {
+    if (party && party.hostUserId === userId && Math.abs(Number(amount) - HOUSE_PARTY_PUBLISH_ZAR) < 0.02) {
       await prisma.houseParty.update({
         where: { id: party.id },
         data: {
@@ -482,7 +493,7 @@ async function applyReferenceSideEffects(reference, paystackData) {
   if (metadata.type === 'HOUSE_PARTY_BOOST' && housePartyIdMeta && userId) {
     const boostExpiry = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
     const party = await prisma.houseParty.findFirst({ where: { id: String(housePartyIdMeta) } });
-    if (party && party.hostUserId === userId) {
+    if (party && party.hostUserId === userId && Math.abs(Number(amount) - HOUSE_PARTY_BOOST_ZAR) < 0.02) {
       await prisma.houseParty.update({
         where: { id: party.id },
         data: {
@@ -511,8 +522,13 @@ async function applyReferenceSideEffects(reference, paystackData) {
     const boostDaysRaw = metadata.boostDays ?? metadata.boost_days;
     const boostDays = Math.min(30, Math.max(1, parseInt(String(boostDaysRaw || '7'), 10) || 7));
     const boostExpiry = new Date(Date.now() + boostDays * 24 * 60 * 60 * 1000);
+    const expectedTableBoost = expectedPlatformProductAmountZar({
+      ...metadata,
+      type: 'TABLE_BOOST',
+      boost_days: boostDays,
+    });
     const ht = await prisma.hostedTable.findFirst({ where: { id: String(hostedTableBoostId) } });
-    if (ht && ht.hostUserId === userId) {
+    if (ht && ht.hostUserId === userId && (expectedTableBoost == null || Number(amount) + 0.02 >= expectedTableBoost)) {
       await prisma.hostedTable.update({
         where: { id: ht.id },
         data: {
@@ -533,11 +549,16 @@ async function applyReferenceSideEffects(reference, paystackData) {
     const boostDaysRaw = metadata.boostDays ?? metadata.boost_days;
     const boostDays = Math.min(30, Math.max(1, parseInt(String(boostDaysRaw || '1'), 10) || 1));
     const boostExpiry = new Date(Date.now() + boostDays * 24 * 60 * 60 * 1000);
+    const expectedEventBoost = expectedPlatformProductAmountZar({
+      ...metadata,
+      type: 'EVENT_BOOST',
+      boost_days: boostDays,
+    });
     const evt = await prisma.event.findFirst({
       where: { id: String(eventBoostId), deletedAt: null },
       include: { venue: { select: { ownerUserId: true, name: true } } },
     });
-    if (evt) {
+    if (evt && (expectedEventBoost == null || Number(amount) + 0.02 >= expectedEventBoost)) {
       await prisma.event.update({
         where: { id: evt.id },
         data: {
@@ -568,11 +589,16 @@ async function applyReferenceSideEffects(reference, paystackData) {
     const boostDaysRaw = metadata.boostDays ?? metadata.boost_days;
     const boostDays = Math.min(30, Math.max(1, parseInt(String(boostDaysRaw || '1'), 10) || 1));
     const boostExpiry = new Date(Date.now() + boostDays * 24 * 60 * 60 * 1000);
+    const expectedVenueTableBoost = expectedPlatformProductAmountZar({
+      ...metadata,
+      type: 'VENUE_TABLE_BOOST',
+      boost_days: boostDays,
+    });
     const vt = await prisma.venueTable.findFirst({
       where: { id: String(venueTableBoostId) },
       include: { venue: { select: { ownerUserId: true, name: true } } },
     });
-    if (vt) {
+    if (vt && (expectedVenueTableBoost == null || Number(amount) + 0.02 >= expectedVenueTableBoost)) {
       await prisma.venueTable.update({
         where: { id: vt.id },
         data: {
@@ -1808,12 +1834,20 @@ async function applyReferenceSideEffects(reference, paystackData) {
   }
 
   const tableId = metadata.table_id;
-  if (tableId && userId && metadata.type !== 'TABLE_HOST_FEE') {
+  if (tableId && userId && metadata.type === 'table') {
     const table = await prisma.table.findFirst({
       where: { id: tableId, deletedAt: null },
       include: { venue: { select: { ownerUserId: true, name: true } } },
     });
     if (table) {
+      const legacyFee = Number(table.joiningFee || 0);
+      const paidGross = Number(chargedAmount) || Number(priorPay?.amount) || 0;
+      const tableFeeMatches = legacyFee > 0 && Math.abs(paidGross - legacyFee) < 0.02;
+      if (!tableFeeMatches) {
+        metadata.side_effects_error = 'Table payment amount does not match the joining fee';
+        console.error('TABLE join amount mismatch', { reference, paidGross, legacyFee });
+      }
+      if (tableFeeMatches) {
       const members = Array.isArray(table.members) ? [...table.members] : [];
       const memberIdx = members.findIndex((m) => m?.user_id === userId);
       const contribution = amount || (memberIdx >= 0 ? members[memberIdx]?.contribution : 0) || table.joiningFee || 0;
@@ -1917,6 +1951,7 @@ async function applyReferenceSideEffects(reference, paystackData) {
         eventStartsAt,
         eventEndsAt,
       });
+      }
     }
   }
 
@@ -2934,7 +2969,7 @@ router.post('/initialize', authenticateToken, async (req, res, next) => {
       }
     }
 
-    if (type === 'ticket') {
+    if (type === 'ticket' || (type === 'event' && (meta.ticket_tier_name || meta.ticketTierName))) {
       const computed = await computeTicketCheckout(prisma, {
         eventId: meta.event_id,
         ticketTierName: meta.ticket_tier_name,
@@ -2986,7 +3021,7 @@ router.post('/initialize', authenticateToken, async (req, res, next) => {
         });
       }
     } else {
-      const platformExpected = expectedPlatformProductAmountZar(meta);
+      const platformExpected = expectedPlatformProductAmountZar({ ...meta, type: meta.type || type });
       if (platformExpected != null && Math.abs(Number(d.amount) - platformExpected) >= 0.02) {
         return res.status(400).json({
           error: 'Payment amount does not match product price.',
@@ -3095,7 +3130,7 @@ router.post('/paystack/initialize', authenticateToken, async (req, res, next) =>
         return res.status(400).json({ error: 'Payment amount does not match the table joining fee.', expected_zar: legacyFee });
       }
     }
-    if (type === 'ticket') {
+    if (type === 'ticket' || (type === 'event' && (meta.ticket_tier_name || meta.ticketTierName))) {
       const computed = await computeTicketCheckout(prisma, {
         eventId: meta.event_id,
         ticketTierName: meta.ticket_tier_name,
@@ -3147,7 +3182,7 @@ router.post('/paystack/initialize', authenticateToken, async (req, res, next) =>
         });
       }
     } else {
-      const platformExpected = expectedPlatformProductAmountZar(meta);
+      const platformExpected = expectedPlatformProductAmountZar({ ...meta, type: meta.type || type });
       if (platformExpected != null && Math.abs(Number(d.amount) - platformExpected) >= 0.02) {
         return res.status(400).json({
           error: 'Payment amount does not match product price.',

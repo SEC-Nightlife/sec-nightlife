@@ -7,6 +7,7 @@ import { prisma } from '../lib/prisma.js';
 import { audit } from '../lib/audit.js';
 import { logger } from '../lib/logger.js';
 import { sendVerificationEmail, sendPasswordResetEmail, sendEmailChangeOtpEmail, sendLoginOtpEmail } from '../lib/email.js';
+import { selectVerificationAccount } from '../lib/verificationTarget.js';
 import { authenticateToken } from '../middleware/auth.js';
 import { validateUsernameFormat } from '../lib/username.js';
 import { createInAppNotification } from '../lib/inAppNotifications.js';
@@ -312,6 +313,11 @@ const forgotPasswordSchema = z.object({
   email: emailSchemaField
 });
 
+const resendVerificationSchema = z.object({
+  email: emailSchemaField,
+  role: z.enum(['USER', 'VENUE']).optional(),
+});
+
 const resetPasswordSchema = z.object({
   token: z.string().min(1),
   password: z.string().min(8).max(128)
@@ -411,10 +417,12 @@ async function issueLoginOtpChallenge(user) {
       code: err.code,
     });
     const sendErr = new Error(
-      'We could not send your sign-in code. Check your email address and try again, or use Resend code shortly.'
+      err?.code === 'EMAIL_SUPPRESSED'
+        ? err.message
+        : 'We could not send your sign-in code. Check your email address and try again, or use Resend code shortly.',
     );
     sendErr.statusCode = 422;
-    sendErr.code = 'EMAIL_SEND_FAILED';
+    sendErr.code = err?.code === 'EMAIL_SUPPRESSED' ? 'EMAIL_SUPPRESSED' : 'EMAIL_SEND_FAILED';
     throw sendErr;
   }
   return {
@@ -509,11 +517,13 @@ router.post('/register', async (req, res, next) => {
     });
 
     let emailSendFailed = false;
+    let emailSendError = null;
     if (!skipVerification) {
       try {
         await sendVerificationEmail(user.email, rawVerificationToken);
       } catch (err) {
         emailSendFailed = true;
+        if (err?.code === 'EMAIL_SUPPRESSED') emailSendError = err.message;
         logger.error('Failed to send verification email', {
           userId: user.id,
           email: user.email,
@@ -547,6 +557,7 @@ router.post('/register', async (req, res, next) => {
       user: userPayload(user),
       emailVerificationRequired: !skipVerification,
       emailSendFailed: !skipVerification && emailSendFailed,
+      ...(emailSendError ? { emailSendError } : {}),
     };
     if (skipVerification) {
       const loginPayload = await buildLoginSuccessPayload(user);
@@ -787,46 +798,74 @@ router.post('/verify-email', async (req, res, next) => {
 
 router.post('/resend-verification', async (req, res, next) => {
   try {
-    const parsed = forgotPasswordSchema.safeParse(req.body); // reuse email schema
+    const parsed = resendVerificationSchema.safeParse(req.body);
     if (!parsed.success) {
       return res.status(400).json({ error: 'Valid email required' });
     }
-    const { email } = parsed.data;
+    const { email, role } = parsed.data;
 
-    const user = await prisma.user.findFirst({
-      where: { email, deletedAt: null }
+    const accounts = await prisma.user.findMany({
+      where: { email, deletedAt: null },
+      select: { id: true, email: true, role: true, emailVerified: true, deletedAt: true },
     });
+    const target = selectVerificationAccount(accounts, role);
 
-    // SECURITY: same response whether user exists or not (except real send failures for known unverified)
-    if (user && !user.emailVerified) {
-      const rawToken = generateSecureToken();
-      const tokenHash = hashTokenSha256(rawToken);
-
-      await prisma.user.update({
-        where: { id: user.id },
-        data: {
-          verificationTokenHash: tokenHash,
-          verificationExpiry: new Date(Date.now() + 24 * 60 * 60 * 1000)
-        }
+    if (target.code === 'ROLE_REQUIRED') {
+      return res.status(400).json({
+        error: 'Choose Party Goer or Business Owner, then resend the verification email.',
+        code: 'ROLE_REQUIRED',
       });
-
-      try {
-        await sendVerificationEmail(user.email, rawToken);
-      } catch (err) {
-        logger.error('Failed to resend verification email', {
-          userId: user.id,
-          email: user.email,
-          message: err.message,
-          code: err.code,
-        });
-        return res.status(422).json({
-          error: 'We could not send the verification email. Please try again in a few minutes.',
-          code: 'EMAIL_SEND_FAILED',
+    }
+    if (target.code === 'ALREADY_VERIFIED') {
+      return res.status(409).json({
+        error: 'This account is already verified. Sign in with your password.',
+        code: 'ALREADY_VERIFIED',
+      });
+    }
+    if (target.code === 'NOT_FOUND') {
+      if (role) {
+        return res.status(404).json({
+          error: 'No account was found for this email and sign-in type. Check Party Goer vs Business Owner.',
+          code: 'ACCOUNT_NOT_FOUND',
         });
       }
+      return res.json({
+        sent: false,
+        message: 'If an unverified account exists for this email, a verification link was sent.',
+      });
     }
 
-    res.json({ message: 'If the email exists and is unverified, a new verification link was sent.' });
+    const user = target.user;
+    const rawToken = generateSecureToken();
+    const tokenHash = hashTokenSha256(rawToken);
+
+    await prisma.user.update({
+      where: { id: user.id },
+      data: {
+        verificationTokenHash: tokenHash,
+        verificationExpiry: new Date(Date.now() + 24 * 60 * 60 * 1000),
+      },
+    });
+
+    try {
+      await sendVerificationEmail(user.email, rawToken);
+    } catch (err) {
+      logger.error('Failed to resend verification email', {
+        userId: user.id,
+        email: user.email,
+        role: user.role,
+        message: err.message,
+        code: err.code,
+      });
+      return res.status(422).json({
+        error: err?.code === 'EMAIL_SUPPRESSED'
+          ? err.message
+          : 'We could not send the verification email. Please try again in a few minutes.',
+        code: err?.code === 'EMAIL_SUPPRESSED' ? 'EMAIL_SUPPRESSED' : 'EMAIL_SEND_FAILED',
+      });
+    }
+
+    res.json({ sent: true, message: 'Verification email sent. Check your inbox and spam.' });
   } catch (err) {
     next(err);
   }

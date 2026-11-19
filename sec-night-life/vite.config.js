@@ -8,6 +8,8 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 // https://vite.dev/config/
 export default defineConfig({
   logLevel: 'error',
+  // Relative base so Capacitor Android/iOS WebViews resolve assets reliably.
+  base: './',
   plugins: [react()],
   resolve: {
     alias: {

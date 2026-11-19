@@ -7,7 +7,7 @@ import { logger } from './logger.js';
 let redis = null;
 let rateLimitScript = null;
 
-const RATE_LIMIT_WINDOW_SEC = 15 * 60;
+const DEFAULT_RATE_LIMIT_WINDOW_SEC = 15 * 60;
 
 /** Single round-trip INCR + conditional EXPIRE + TTL for rate limiting. */
 const RATE_LIMIT_LUA = `
@@ -86,8 +86,9 @@ export async function cacheDel(key) {
  * Express-rate-limit compatible store backed by Upstash Redis.
  * Falls back to in-memory Map when Redis is not configured.
  */
-export function createRedisRateLimitStore({ prefix = 'rl' } = {}) {
+export function createRedisRateLimitStore({ prefix = 'rl', windowMs = DEFAULT_RATE_LIMIT_WINDOW_SEC * 1000 } = {}) {
   const memory = new Map();
+  const windowSec = Math.max(1, Math.round(Number(windowMs) / 1000) || DEFAULT_RATE_LIMIT_WINDOW_SEC);
 
   return {
     async increment(key) {
@@ -95,10 +96,13 @@ export function createRedisRateLimitStore({ prefix = 'rl' } = {}) {
       const fullKey = `${prefix}:${key}`;
       if (!client) {
         const now = Date.now();
-        const entry = memory.get(fullKey) || {
-          totalHits: 0,
-          resetTime: new Date(now + RATE_LIMIT_WINDOW_SEC * 1000),
-        };
+        let entry = memory.get(fullKey);
+        if (!entry || !(entry.resetTime instanceof Date) || entry.resetTime.getTime() <= now) {
+          entry = {
+            totalHits: 0,
+            resetTime: new Date(now + windowSec * 1000),
+          };
+        }
         entry.totalHits += 1;
         memory.set(fullKey, entry);
         return {
@@ -108,15 +112,15 @@ export function createRedisRateLimitStore({ prefix = 'rl' } = {}) {
       }
       try {
         const script = getRateLimitScript(client);
-        const result = await script.eval([fullKey], [String(RATE_LIMIT_WINDOW_SEC)]);
+        const result = await script.eval([fullKey], [String(windowSec)]);
         const hits = Number(Array.isArray(result) ? result[0] : 1);
-        const ttl = Number(Array.isArray(result) ? result[1] : RATE_LIMIT_WINDOW_SEC);
+        const ttl = Number(Array.isArray(result) ? result[1] : windowSec);
         const resetTime = new Date(Date.now() + Math.max(ttl, 1) * 1000);
         return { totalHits: hits, resetTime };
       } catch (e) {
         logger.warn('redis rate limit increment failed', { err: e?.message });
         const now = Date.now();
-        return { totalHits: 1, resetTime: new Date(now + RATE_LIMIT_WINDOW_SEC * 1000) };
+        return { totalHits: 1, resetTime: new Date(now + windowSec * 1000) };
       }
     },
     async decrement(key) {

@@ -12,6 +12,25 @@ import { CheckCircle2, XCircle, Loader2, Copy, MapPin, Building2, Users, Calenda
 import { toast } from 'sonner';
 import { useAuth } from '@/lib/AuthContext';
 import { Button } from '@/components/ui/button';
+import { Capacitor } from '@capacitor/core';
+import { openInAppHref, shouldOfferOpenInApp } from '@/lib/openInApp';
+
+function OpenInAppLink() {
+  if (typeof window === 'undefined') return null;
+  const userAgent = navigator.userAgent || '';
+  const native = Capacitor.isNativePlatform();
+  if (!shouldOfferOpenInApp({ native, userAgent })) return null;
+  const href = openInAppHref(window.location.href, { userAgent });
+  if (!href) return null;
+  return (
+    <a
+      href={href}
+      className="w-full max-w-lg mb-4 inline-flex items-center justify-center rounded-xl px-4 py-3 text-sm font-semibold bg-white text-black"
+    >
+      Open in SEC Nightlife
+    </a>
+  );
+}
 
 function formatWhen(iso) {
   if (!iso) return null;
@@ -215,6 +234,8 @@ export default function TicketVerify() {
           e.currentTarget.src = '/Logo/sec-email-logo-transparent.png';
         }}
       />
+
+      <OpenInAppLink />
 
       {!loading && payload?._offline_cached && (
         <div

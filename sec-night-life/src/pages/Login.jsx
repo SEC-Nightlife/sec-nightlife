@@ -35,6 +35,7 @@ export default function Login() {
   const roleParam = searchParams.get('role');
   const verifyEmailParam = searchParams.get('verifyEmail') === '1';
   const emailSendFailedParam = searchParams.get('emailSendFailed') === '1';
+  const emailErrorParam = searchParams.get('emailError') || '';
   const emailFromRegister = searchParams.get('email') || '';
   const defaultReturnUrl =
     roleParam === 'VENUE' ? createPageUrl('BusinessDashboard') : createPageUrl('Home');
@@ -202,8 +203,12 @@ export default function Login() {
     }
     setResendLoading(true);
     try {
-      await authService.resendVerificationEmail(email.trim());
-      toast.success('If your account is unverified, a new link was sent to your email');
+      const role = resolveLoginRole();
+      const data = await authService.resendVerificationEmail(
+        email.trim(),
+        role === 'USER' || role === 'VENUE' ? role : undefined,
+      );
+      toast.success(data?.message || 'Verification email sent. Check your inbox and spam.');
     } catch (err) {
       toast.error(err?.data?.error || err?.message || 'Could not resend verification email');
     } finally {
@@ -317,7 +322,9 @@ export default function Login() {
               <div className="rounded-xl border border-[rgba(212,175,55,0.35)] bg-[rgba(212,175,55,0.08)] px-4 py-3 text-sm text-[var(--sec-text-secondary)]">
                 <p className="font-medium text-[var(--sec-accent)] mb-1">Verify your email before signing in</p>
                 <p>
-                  {emailSendFailedParam
+                  {emailErrorParam
+                    ? emailErrorParam
+                    : emailSendFailedParam
                     ? 'Your account was created, but we could not send the verification email. Tap Resend verification email below, then check your inbox (and spam).'
                     : 'Your account was created. Open the verification link we sent to your email, then come back here to sign in. Check spam if you do not see it.'}
                 </p>

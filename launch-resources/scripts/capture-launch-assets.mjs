@@ -47,9 +47,25 @@ async function captureScreenshots(page, routes, outputDir, { business = false } 
   else await ensurePartyGoerMode(page, BASE_URL);
 
   for (const route of routes) {
-    await gotoAuthenticated(page, BASE_URL, route.path, route);
-    if (route.beforeScreenshot) await route.beforeScreenshot(page);
-    await screenshot(page, KIT_ROOT, join(outputDir, route.file), { requireAuth: true });
+    try {
+      await gotoAuthenticated(page, BASE_URL, route.path, route);
+      if (route.beforeScreenshot) await route.beforeScreenshot(page);
+      await screenshot(page, KIT_ROOT, join(outputDir, route.file), { requireAuth: true });
+    } catch (err) {
+      console.warn(`  ⚠ Skipping ${route.file || route.path}: ${err?.message || err}`);
+      try {
+        await page.goto(`${BASE_URL}${route.path}`, { waitUntil: 'domcontentloaded', timeout: 60000 });
+        await page.waitForTimeout(1500);
+        await page.locator('body').screenshot({
+          path: join(outputDir, route.file),
+          timeout: 60000,
+          animations: 'disabled',
+        });
+        console.log(`  ✓ (fallback) \\screenshots\\...\\${route.file}`);
+      } catch (fallbackErr) {
+        console.warn(`  ✗ Failed ${route.file}: ${fallbackErr?.message || fallbackErr}`);
+      }
+    }
   }
 }
 

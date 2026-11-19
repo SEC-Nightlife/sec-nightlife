@@ -6,6 +6,7 @@
         "appID": "QXJ527465C.com.secnightlife.app",
         "paths": [
           "/TicketVerify*",
+          "/verify-email*",
           "/VenueProfile*",
           "/EventDetails*",
           "/Home",

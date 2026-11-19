@@ -76,6 +76,20 @@ function formatTextAsHtml(text = '') {
     .join('');
 }
 
+function withSecEmailBrandingText(innerHtml) {
+  return `
+    <div style="font-family:Arial,sans-serif;max-width:560px;margin:0 auto;background:#0f1011;color:#e9ecef;border:1px solid #232528;border-radius:16px;overflow:hidden;">
+      <div style="padding:20px 20px 14px;border-bottom:1px solid #232528;background:#0b0c0d;">
+        <div style="font-size:18px;font-weight:700;line-height:1.2;color:#ffffff;">SEC Nightlife</div>
+        <div style="font-size:12px;line-height:1.4;color:#9aa0a6;">Your night. Simplified.</div>
+      </div>
+      <div style="padding:20px;background:#111315;color:#e9ecef;">
+        ${innerHtml}
+      </div>
+    </div>
+  `;
+}
+
 function withSecEmailBranding(innerHtml, { logoSrc }) {
   return `
     <div style="font-family:Arial,sans-serif;max-width:560px;margin:0 auto;background:#0f1011;color:#e9ecef;border:1px solid #232528;border-radius:16px;overflow:hidden;">
@@ -99,12 +113,14 @@ function withSecEmailBranding(innerHtml, { logoSrc }) {
   `;
 }
 
-function prepareEmailPayload({ html, text, attachments }) {
+function prepareEmailPayload({ html, text, attachments, skipLogo = false }) {
   const bodyHtml = html || formatTextAsHtml(text || '');
-  const logoBuffer = loadSecEmailLogoBuffer();
+  const logoBuffer = skipLogo ? null : loadSecEmailLogoBuffer();
   const remoteLogoUrl = `${getPublicAppBaseUrl()}${SEC_EMAIL_LOGO_PATH}`;
   const logoSrc = logoBuffer ? `cid:${SEC_EMAIL_LOGO_CID}` : remoteLogoUrl;
-  const brandedHtml = bodyHtml ? withSecEmailBranding(bodyHtml, { logoSrc }) : undefined;
+  const brandedHtml = bodyHtml
+    ? (skipLogo ? withSecEmailBrandingText(bodyHtml) : withSecEmailBranding(bodyHtml, { logoSrc }))
+    : undefined;
 
   const nextAttachments = Array.isArray(attachments) ? [...attachments] : [];
   if (logoBuffer) {
@@ -134,11 +150,52 @@ function prepareEmailPayload({ html, text, attachments }) {
  * @param {string} [params.html]
  * @param {string} [params.text]
  * @param {Array<{ filename: string, content: string | Buffer, contentId?: string }>} [params.attachments] Inline images: set contentId → HTML uses src="cid:contentId" (Resend: inlineContentId)
+ * @param {boolean} [params.skipLogo] Omit the inline SEC logo. Verification and sign-in mail keep the logo.
  */
-export async function sendEmail({ to, subject, html, text, attachments }) {
+const suppressionCache = { at: 0, emails: new Set() };
+
+/** Hard-bounced addresses are on Resend's suppression list. A later send is accepted and then dropped. */
+export async function recipientIsSuppressed(to) {
+  const email = String(to || '').trim().toLowerCase();
+  if (!email || !process.env.RESEND_API_KEY) return false;
+  const now = Date.now();
+  if (now - suppressionCache.at > 60_000) {
+    try {
+      const res = await fetch('https://api.resend.com/suppressions', {
+        headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}` },
+      });
+      const body = await res.json().catch(() => ({}));
+      const emails = new Set(
+        (Array.isArray(body?.data) ? body.data : [])
+          .map((row) => String(row?.email || '').trim().toLowerCase())
+          .filter(Boolean),
+      );
+      suppressionCache.at = now;
+      suppressionCache.emails = emails;
+    } catch (err) {
+      logger.warn('suppression lookup failed', { err: err?.message });
+      return false;
+    }
+  }
+  return suppressionCache.emails.has(email);
+}
+
+function suppressedSendError() {
+  const err = new Error(
+    'We cannot email this address. A previous message bounced, which usually means the mailbox does not exist or the address was mistyped.',
+  );
+  err.code = 'EMAIL_SUPPRESSED';
+  return err;
+}
+
+export async function sendEmail({ to, subject, html, text, attachments, skipLogo = false }) {
+  if (await recipientIsSuppressed(to)) {
+    logger.warn('Email blocked: address is suppressed after a bounce', { to, subject });
+    throw suppressedSendError();
+  }
   const resend = createResendClient();
   const from = getFromAddress();
-  const prepared = prepareEmailPayload({ html, text, attachments });
+  const prepared = prepareEmailPayload({ html, text, attachments, skipLogo });
   const payload = { from, to, subject, html: prepared.html, text: prepared.text };
   if (prepared.attachments?.length) {
     payload.attachments = prepared.attachments.map((a) => {
@@ -171,24 +228,17 @@ export async function sendBulkEmails(messages) {
 export async function sendVerificationEmail(to, token) {
   const baseUrl = getPublicAppBaseUrl();
   const link = `${baseUrl}/verify-email?token=${encodeURIComponent(token)}`;
+  const safeLink = escapeHtml(link);
   await sendEmail({
     to,
     subject: 'Verify your SEC Nightlife account',
-    text: `Welcome to SEC Nightlife!\n\nVerify your email by clicking the link below:\n${link}\n\nThis link expires in 24 hours.\n\nIf you did not create an account, ignore this email.`,
+    text: `Verify your SEC Nightlife account.\n\nOpen this link. It expires in 24 hours:\n${link}\n\nIf you did not create an account, ignore this email.`,
     html: `
-      <div style="font-family:sans-serif;max-width:480px;margin:0 auto;">
-        <h2 style="color:#fff;background:#111;padding:24px;margin:0;">SEC Nightlife</h2>
-        <div style="padding:24px;background:#1a1a1a;color:#e0e0e0;">
-          <h3>Verify your email address</h3>
-          <p>Click the button below to verify your account. This link expires in <strong>24 hours</strong>.</p>
-          <a href="${link}" style="display:inline-block;padding:12px 28px;background:#fff;color:#000;font-weight:700;border-radius:6px;text-decoration:none;margin:16px 0;">
-            Verify Email
-          </a>
-          <p style="font-size:12px;color:#888;">Or copy this link: ${link}</p>
-          <p style="font-size:12px;color:#666;">If you did not create an account, ignore this email.</p>
-        </div>
-      </div>
-    `
+      <h2 style="margin:0 0 12px;font-size:20px;color:#ffffff;">Verify your email</h2>
+      <p style="margin:0 0 16px;">Open this link to verify your SEC Nightlife account. It expires in 24 hours.</p>
+      <p style="margin:0 0 16px;"><a href="${safeLink}" style="color:#8cf;word-break:break-all;">${safeLink}</a></p>
+      <p style="margin:0;font-size:12px;color:#9aa0a6;">If you did not create an account, ignore this email.</p>
+    `,
   });
 }
 

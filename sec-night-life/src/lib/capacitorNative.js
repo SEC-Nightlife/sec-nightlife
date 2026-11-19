@@ -59,10 +59,23 @@ export async function initNativeShell() {
 
   try {
     const { App } = await import('@capacitor/app');
+    let lastUrl = '';
+    const openUrl = (url) => {
+      if (!url || url === lastUrl) return;
+      const path = pathFromAppUrl(url);
+      if (!path) return;
+      lastUrl = url;
+      handleDeepLinkPath(path);
+    };
     await App.addListener('appUrlOpen', (event) => {
-      const path = pathFromAppUrl(event?.url);
-      if (path) handleDeepLinkPath(path);
+      openUrl(event?.url);
     });
+    try {
+      const launch = await App.getLaunchUrl();
+      if (launch?.url) openUrl(launch.url);
+    } catch (launchErr) {
+      console.warn('[native] launch url:', launchErr?.message || launchErr);
+    }
   } catch (err) {
     console.warn('[native] deep link listener:', err?.message || err);
   }

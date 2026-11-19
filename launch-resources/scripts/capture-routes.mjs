@@ -23,6 +23,9 @@ export const BUSINESS_SCREENSHOTS = [
       await page.waitForTimeout(800);
     },
   },
+  { file: '05-promotions.png', path: '/BusinessPromotions', label: 'Promotions', waitForSelector: 'h1, h2' },
+  { file: '06-venue-tables.png', path: '/BusinessVenueTables', label: 'Venue tables', waitForSelector: 'h1, h2' },
+  { file: '07-jobs.png', path: '/BusinessJobs', label: 'Business jobs', waitForSelector: 'h1, h2' },
 ];
 
 /** Party-goer — authenticated store submission screenshots */
@@ -33,6 +36,8 @@ export const PARTY_AUTH_SCREENSHOTS = [
   { file: '04-notifications.png', path: '/Notifications', label: 'Notifications', waitForSelector: 'h1, h2' },
   { file: '05-friends.png', path: '/Friends', label: 'Friends', waitForSelector: 'h1, h2' },
   { file: '06-host-dashboard.png', path: '/HostDashboard', label: 'Host dashboard', waitForSelector: 'h1, h2' },
+  { file: '07-jobs.png', path: '/Jobs', label: 'Jobs browse', waitForSelector: 'h1, h2' },
+  { file: '08-leaderboard.png', path: '/Leaderboard', label: 'Promoters leaderboard', waitForSelector: 'h1, h2' },
 ];
 
 /** Legal pages exported for store submission (Settings → Support) */

@@ -85,7 +85,7 @@ Do this **after** the launch-hardening PR is deployed. Keep Paystack on **test k
 
 1. Complete Paystack business activation (see `launch-resources/paystack/`).
 2. Enable **Transfers** on the live account.
-3. Confirm **Settings → Preferences → Payout schedule = Settled to Balance** (not auto bank payout). Details + escalation email: `launch-resources/paystack/SETTLE_TO_BALANCE_MARKETPLACE.md`.
+3. Confirm **Settings → Preferences → Payout schedule = Settled to Balance** (not auto bank payout). **Enabled 5 Aug 2026** (Chika) — keep Transfer Approval / OTP confirm off. Next: Topup or wait for Available, then venue Transfers clear Pending. Details: `launch-resources/paystack/SETTLE_TO_BALANCE_MARKETPLACE.md`.
 4. Set matching live keys:
    - API: `PAYSTACK_SECRET_KEY`, `PAYSTACK_PUBLIC_KEY`
    - Frontend: `VITE_PAYSTACK_PUBLIC_KEY` (or rely on API public-key endpoint) — redeploy frontend

@@ -10,6 +10,8 @@ export { splitPlatformGross, splitPlatformGross as splitSecPlatform } from './pl
 export const EXTERNAL_HOSTED_LISTING_ZAR = 200;
 export const PROMOTION_PUBLISH_ZAR_PER_DAY = 50;
 export const PROMOTION_BOOST_ZAR_PER_DAY = 150;
+export const HOUSE_PARTY_PUBLISH_ZAR = 100;
+export const HOUSE_PARTY_BOOST_ZAR = 150;
 
 function requirePaystackKey() {
   const key = process.env.PAYSTACK_SECRET_KEY;
@@ -53,18 +55,20 @@ export function expectedPlatformProductAmountZar(meta = {}) {
   if (type === 'HOSTED_TABLE_EXTERNAL_LISTING') {
     return EXTERNAL_HOSTED_LISTING_ZAR;
   }
-  if (type === 'TABLE_BOOST' || type === 'EVENT_BOOST' || type === 'VENUE_TABLE_BOOST' || type === 'HOUSE_PARTY_BOOST') {
-    return FEED_BOOST_ZAR_PER_DAY * boostDays;
+  if (type === 'TABLE_BOOST' || type === 'EVENT_BOOST' || type === 'VENUE_TABLE_BOOST') {
+    return FEED_BOOST_ZAR_PER_DAY * Math.max(1, boostDays);
   }
   if (type === 'BOOST' || type === 'PROMOTION_BOOST') {
-    return PROMOTION_BOOST_ZAR_PER_DAY * boostDays;
+    return PROMOTION_BOOST_ZAR_PER_DAY * Math.max(1, boostDays);
   }
-  if (type === 'PROMOTION_PUBLISH' || meta.sec_kind === 'PROMOTION_PUBLISH') {
+  if (type === 'PROMOTION_PUBLISH' || type === 'promotion' || meta.sec_kind === 'PROMOTION_PUBLISH') {
     const publishDays = Math.max(1, Math.min(90, Number(meta.publish_days ?? meta.publishDays ?? 1) || 1));
     const boostPart = Number(meta.boost_days ?? meta.boostDays ?? 0) || 0;
     const boostZar = boostPart > 0 ? PROMOTION_BOOST_ZAR_PER_DAY * clampBoostDays(boostPart) : 0;
     return publishDays * PROMOTION_PUBLISH_ZAR_PER_DAY + boostZar;
   }
+  if (type === 'HOUSE_PARTY_PUBLISH') return HOUSE_PARTY_PUBLISH_ZAR;
+  if (type === 'HOUSE_PARTY_BOOST') return HOUSE_PARTY_BOOST_ZAR;
   return null;
 }
 
@@ -161,6 +165,29 @@ export function sanitizePaystackTransferReference(raw) {
 
 const BATCH_REF_PREFIX = 'secbatch-';
 
+const IN_FLIGHT_TRANSFER_STATUSES = new Set([
+  'pending',
+  'otp',
+  'received',
+  'receiving',
+  'queued',
+  'processing',
+]);
+
+/**
+ * What to do when a batch already has a Paystack transfer reference.
+ * confirm / wait must not create another transfer. resend is only for a confirmed dead transfer.
+ */
+export function transferRetryDecision(status) {
+  const normalized = String(status || '').toLowerCase();
+  if (normalized === 'success') return 'confirm';
+  if (normalized === 'failed' || normalized === 'reversed' || normalized === 'abandoned' || normalized === 'not_found') {
+    return 'resend';
+  }
+  if (IN_FLIGHT_TRANSFER_STATUSES.has(normalized)) return 'wait';
+  return 'wait';
+}
+
 function batchIdFromTransferRef(ref) {
   const s = String(ref || '');
   if (!s.startsWith(BATCH_REF_PREFIX)) return null;
@@ -184,7 +211,9 @@ function batchTransferReason(saleCount) {
 
 /**
  * Send one Paystack transfer for a batch. Claimed rows move to PROCESSING on success.
- * On failure the batch is FAILED and its rows stay PENDING (still attached) for the daily retry.
+ * A timeout after Paystack accepted the transfer leaves the batch PROCESSING on that
+ * reference so the sync job can confirm it. A new reference is used only after Paystack
+ * says the previous transfer failed, was reversed, or never existed.
  */
 async function sendBatchTransfer(batchId, paystackRecipientCode) {
   const batch = await prisma.payoutBatch.findUnique({
@@ -213,11 +242,44 @@ async function sendBatchTransfer(batchId, paystackRecipientCode) {
   }
 
   const baseRef = sanitizePaystackTransferReference(`${BATCH_REF_PREFIX}${batch.id}`);
-  // Paystack rejects reusing a reference after fail/reverse — append a retry suffix.
-  const transferReference = batch.paystackTransferRef
-    ? sanitizePaystackTransferReference(`${baseRef}-r${Date.now().toString(36)}`)
-    : baseRef;
+  let transferReference = baseRef;
   const ledgerIds = batch.ledgers.map((r) => r.id);
+
+  if (batch.paystackTransferRef) {
+    let decision = 'wait';
+    try {
+      const { status } = await verifyTransferStatus(batch.paystackTransferRef);
+      decision = transferRetryDecision(status);
+    } catch (e) {
+      decision = e?.status === 404 ? 'resend' : 'wait';
+      if (decision === 'wait') {
+        const msg = (e?.message || 'Could not verify existing transfer').slice(0, 2000);
+        await prisma.payoutBatch.update({
+          where: { id: batch.id },
+          data: { status: 'PROCESSING', errorMessage: msg },
+        });
+        logger.warn('payout retry skipped: existing transfer could not be verified', {
+          batchId: batch.id,
+          ref: batch.paystackTransferRef,
+          err: msg,
+        });
+        return { batchId: batch.id, status: 'PROCESSING', skipped: true, reason: 'verify_error' };
+      }
+    }
+    if (decision === 'confirm') {
+      await applyTransferWebhookEvent('transfer.success', { reference: batch.paystackTransferRef });
+      return { batchId: batch.id, status: 'TRANSFERRED', skipped: true, reason: 'already_success' };
+    }
+    if (decision === 'wait') {
+      await prisma.payoutBatch.update({
+        where: { id: batch.id },
+        data: { status: 'PROCESSING', errorMessage: null },
+      });
+      return { batchId: batch.id, status: 'PROCESSING', skipped: true, reason: 'in_flight' };
+    }
+    // Confirmed dead transfer. Paystack will not accept the old reference again.
+    transferReference = sanitizePaystackTransferReference(`${baseRef}-r${Date.now().toString(36)}`);
+  }
 
   try {
     const transfer = await paystackFetch('/transfer', {
@@ -242,21 +304,68 @@ async function sendBatchTransfer(batchId, paystackRecipientCode) {
     return { batchId: batch.id, status: 'PROCESSING', total, rows: ledgerIds.length, transferRef: ref };
   } catch (e) {
     const msg = (e?.message || String(e)).slice(0, 2000);
+    const definiteReject = Number(e?.status) >= 400 && Number(e?.status) < 500;
+    if (definiteReject) {
+      await prisma.payoutBatch.update({
+        where: { id: batch.id },
+        data: { status: 'FAILED', totalAmount: total, paystackTransferRef: transferReference, errorMessage: msg },
+      });
+      await prisma.payoutLedger.updateMany({
+        where: { id: { in: ledgerIds }, status: { in: ['PENDING', 'FAILED'] } },
+        data: { status: 'PENDING', errorMessage: msg },
+      });
+      logger.error('paystack batch transfer rejected (rows left PENDING for retry)', {
+        batchId: batch.id,
+        total,
+        err: msg,
+      });
+      return { batchId: batch.id, status: 'FAILED', total, rows: ledgerIds.length, error: msg };
+    }
+    // Network or 5xx: Paystack may already have accepted this reference. Do not mint another.
     await prisma.payoutBatch.update({
       where: { id: batch.id },
-      data: { status: 'FAILED', totalAmount: total, paystackTransferRef: transferReference, errorMessage: msg },
+      data: { status: 'PROCESSING', totalAmount: total, paystackTransferRef: transferReference, errorMessage: msg },
     });
-    await prisma.payoutLedger.updateMany({
-      where: { id: { in: ledgerIds } },
-      data: { status: 'PENDING', errorMessage: msg },
-    });
-    logger.error('paystack batch transfer failed (rows left PENDING for retry)', {
+    logger.error('paystack batch transfer uncertain — left PROCESSING for verify', {
       batchId: batch.id,
       total,
+      ref: transferReference,
       err: msg,
     });
-    return { batchId: batch.id, status: 'FAILED', total, rows: ledgerIds.length, error: msg };
+    return { batchId: batch.id, status: 'PROCESSING', total, rows: ledgerIds.length, uncertain: true, error: msg };
   }
+}
+
+/**
+ * PROCESSING batches with no Paystack reference were claimed and then the process
+ * died before the transfer POST. Send them once. Rows stay attached to the batch.
+ */
+async function resumeUnsentProcessingBatches({ limit = 20 } = {}) {
+  const batches = await prisma.payoutBatch.findMany({
+    where: { status: 'PROCESSING', paystackTransferRef: null },
+    orderBy: { updatedAt: 'asc' },
+    take: Math.min(limit, 50),
+    select: { id: true, recipientUserId: true, recipientVenueId: true },
+  });
+  let sent = 0;
+  let failed = 0;
+  let missingRecipient = 0;
+  for (const batch of batches) {
+    try {
+      const code = await resolveRecipientCodeForGroup(batch);
+      if (!code) {
+        missingRecipient += 1;
+        continue;
+      }
+      const result = await sendBatchTransfer(batch.id, code);
+      if (result.status === 'PROCESSING' && !result.skipped) sent += 1;
+      else if (result.status === 'FAILED' && !result.skipped) failed += 1;
+    } catch (e) {
+      failed += 1;
+      logger.error('resumeUnsentProcessingBatches failed', { batchId: batch.id, err: e?.message });
+    }
+  }
+  return { scanned: batches.length, sent, failed, missingRecipient };
 }
 
 /**
@@ -303,6 +412,7 @@ export async function rowsReadyForWeeklyTransfer(rows, now = new Date()) {
  * Ticket shares whose event has not ended stay PENDING.
  */
 export async function runWeeklyPayoutBatches({ minZar = PAYOUT_MIN_ZAR, limit = 5000 } = {}) {
+  await resumeUnsentProcessingBatches({ limit: 50 });
   await requeueRetryableFailedPayouts({ limit: 500 });
 
   const rows = await prisma.payoutLedger.findMany({
@@ -407,6 +517,7 @@ export async function runWeeklyPayoutBatches({ minZar = PAYOUT_MIN_ZAR, limit = 
  * was short on Monday because weekend sales had not settled yet).
  */
 export async function retryFailedPayoutBatches({ limit = 50 } = {}) {
+  const resumed = await resumeUnsentProcessingBatches({ limit });
   const batches = await prisma.payoutBatch.findMany({
     where: {
       status: 'FAILED',
@@ -428,14 +539,14 @@ export async function retryFailedPayoutBatches({ limit = 50 } = {}) {
         continue;
       }
       const result = await sendBatchTransfer(b.id, code);
-      if (result.status === 'PROCESSING') retried += 1;
-      else if (!result.skipped) failed += 1;
+      if (result.status === 'PROCESSING' && !result.skipped && !result.uncertain) retried += 1;
+      else if (result.status === 'FAILED' && !result.skipped) failed += 1;
     } catch (e) {
       failed += 1;
       logger.error('retryFailedPayoutBatches batch failed', { batchId: b.id, err: e?.message });
     }
   }
-  return { scanned: batches.length, retried, failed, missingRecipient };
+  return { scanned: batches.length, retried, failed, missingRecipient, resumed };
 }
 
 /**

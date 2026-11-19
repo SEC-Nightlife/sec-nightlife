@@ -276,23 +276,22 @@ Redeploy **frontend** Vercel project.
 
 ## 10. Google Play Console ($25 one-time)
 
+**Exact paste-ready answers:** [`launch-resources/play-store/PLAY_CONSOLE_FILL_IN.md`](../../launch-resources/play-store/PLAY_CONSOLE_FILL_IN.md)
+
 1. Register at [play.google.com/console](https://play.google.com/console)
-2. Create app **SEC Nightlife**
-3. Complete store listing using `launch-resources/play-store/`:
-   - Icon: `icon-512.png`
-   - Feature graphic: `feature-graphic-1024x500.png`
-   - Screenshots: `play-store/screenshots/`
-   - Privacy policy: https://secnightlife.com/PrivacyPolicy
+2. Create app **SEC Nightlife** (`com.secnightlife.app`)
+3. Complete store listing + App content using the fill-in guide (icon, feature graphic, screenshots, privacy URL, data safety, 18+)
 4. Build signed AAB:
    ```bash
    cd sec-night-life
-   npm run build:mobile
-   npm run cap:android
+   npm run android:keystore   # one-time — back up passwords
+   npm run android:aab
    ```
-   Android Studio → Build → Generate Signed Bundle / APK → **AAB**
-5. Upload to **Internal testing** first, then Production
+   Or Android Studio → Generate Signed Bundle → **AAB** (see [ANDROID_RELEASE_SIGNING.md](./ANDROID_RELEASE_SIGNING.md))
+5. Upload to **Closed testing** (required): 12+ opted-in testers for 14 days — [`CLOSED_TESTING.md`](../../launch-resources/play-store/CLOSED_TESTING.md)
+6. Apply for production access — [`PRODUCTION_ACCESS.md`](../../launch-resources/play-store/PRODUCTION_ACCESS.md)
 
-Age rating: **17+** (alcohol / nightlife content)
+Age rating: **17+ / Mature** (alcohol / nightlife content). Public production is locked until closed testing completes.
 
 ---
 

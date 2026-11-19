@@ -163,7 +163,8 @@ export default function Register() {
       });
       if (data?.emailSendFailed) {
         toast.error(
-          'Account created, but we could not send the verification email. Use Resend verification email on the next screen.',
+          data.emailSendError
+            || 'Account created, but we could not send the verification email. Use Resend verification email on the next screen.',
         );
       } else if (data?.emailVerificationRequired) {
         toast.success('Account created! Check your email to verify before signing in.');
@@ -178,6 +179,7 @@ export default function Register() {
         params.set('verifyEmail', '1');
         params.set('email', email.trim());
         if (data?.emailSendFailed) params.set('emailSendFailed', '1');
+        if (data?.emailSendError) params.set('emailError', data.emailSendError);
       }
       navigate(`${createPageUrl('Login')}?${params.toString()}`, { replace: true });
     } catch (err) {

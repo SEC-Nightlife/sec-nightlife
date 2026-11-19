@@ -11,7 +11,7 @@ Everything needed to submit SEC to the **Apple App Store**, **Google Play Store*
 | Folder | Contents |
 |--------|----------|
 | [`app-store/`](app-store/) | 1024×1024 icon, resized screenshots (1290×2796), listing copy template |
-| [`play-store/`](play-store/) | 512 icon, feature graphic (1024×500), resized screenshots (1080×1920), listing copy |
+| [`play-store/`](play-store/) | 512 icon, feature graphic, **phone + tablet screenshot folders**, listing copy, Play Console fill-in guide |
 | [`screenshots/mobile/`](screenshots/mobile/) | Source mobile captures (390×844 @3x) — party-goer & business-owner |
 | [`legal/`](legal/) | Exported legal page PNGs + [`LEGAL_URLS.md`](legal/LEGAL_URLS.md) for store forms |
 | [`paystack/`](paystack/) | Payment demo video, activation email draft, payment flows reference |
@@ -70,7 +70,18 @@ See [`paystack/EMAIL_TO_PAYSTACK.md`](paystack/EMAIL_TO_PAYSTACK.md) for the ema
 npm run launch:generate-assets
 ```
 
-Creates App Store / Play Store icons, feature graphic, and resizes mobile screenshots into `app-store/screenshots/` and `play-store/screenshots/`.
+Creates App Store / Play Store icons, feature graphic, and resizes mobile screenshots into `app-store/screenshots/` and Play folders.
+
+Play phone + tablet crops from App Store assets:
+
+```bash
+node launch-resources/scripts/generate-play-screenshots.mjs
+```
+
+Outputs:
+- `play-store/phone-screenshots/` (1080×1920)
+- `play-store/tablet-7-inch-screenshots/` (1200×1920)
+- `play-store/tablet-10-inch-screenshots/` (1600×2560)
 
 ---
 
@@ -88,8 +99,28 @@ Compress-Archive -Path launch-resources -DestinationPath sec-launch-resources.zi
 
 ---
 
+## Google Play Console (exact answers)
+
+Open and follow in order:
+
+1. [`play-store/PLAY_CONSOLE_FILL_IN.md`](play-store/PLAY_CONSOLE_FILL_IN.md) — store listing + app content answers  
+2. [`play-store/REVIEWER_ACCOUNT.md`](play-store/REVIEWER_ACCOUNT.md) — App access credentials  
+3. [`play-store/UPLOAD_AAB.md`](play-store/UPLOAD_AAB.md) — upload the signed AAB  
+4. [`play-store/CLOSED_TESTING.md`](play-store/CLOSED_TESTING.md) — 12 testers / 14 days  
+5. [`play-store/PRODUCTION_ACCESS.md`](play-store/PRODUCTION_ACCESS.md) — production questionnaire drafts  
+
+From `sec-night-life/`:
+
+```bash
+npm run android:keystore   # one-time (already done on this machine if keystore exists)
+npm run android:aab        # signed Play upload bundle → android/app/build/outputs/bundle/release/
+```
+
+---
+
 ## Related docs
 
 - Native build: [`sec-night-life/docs/CAPACITOR_BUILD.md`](../sec-night-life/docs/CAPACITOR_BUILD.md)
+- Android signing: [`sec-night-life/docs/ANDROID_RELEASE_SIGNING.md`](../sec-night-life/docs/ANDROID_RELEASE_SIGNING.md)
 - Launch checklist: [`sec-night-life/docs/LAUNCH_CHECKLIST.md`](../sec-night-life/docs/LAUNCH_CHECKLIST.md)
 - Founder handoff: [`sec-night-life/docs/FOUNDER_LAUNCH_HANDOFF.md`](../sec-night-life/docs/FOUNDER_LAUNCH_HANDOFF.md)

@@ -1,0 +1,6 @@
+<svg width="120" height="40" viewBox="0 0 120 40" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <path d="M28 8C23.6 8 20 11.6 20 16s3.6 8 8 8h14c4.4 0 8 3.6 8 8s-3.6 8-8 8" stroke="#FAFAFA" stroke-width="2" stroke-linecap="round"/>
+  <circle cx="26" cy="16" r="4" fill="#C9A962"/>
+  <text x="44" y="20" font-family="system-ui,-apple-system,sans-serif" font-size="18" font-weight="700" fill="#FAFAFA">SEC</text>
+  <text x="44" y="32" font-family="system-ui,-apple-system,sans-serif" font-size="7" fill="#6B7280">YOUR NIGHT. SIMPLIFIED.</text>
+</svg>

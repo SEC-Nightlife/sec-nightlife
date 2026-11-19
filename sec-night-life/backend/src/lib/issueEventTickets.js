@@ -17,6 +17,7 @@ import { buildTicketDoorContext } from './ticketDoorContext.js';
 import { logger } from './logger.js';
 import { countUserEventTierTickets, parseMaxPerUser } from './ticketTierCaps.js';
 import { netOfServiceFee } from './serviceFee.js';
+import { computeTicketCheckout } from './ticketCheckout.js';
 
 export function normalizeTicketTiers(raw) {
   if (Array.isArray(raw)) return raw;
@@ -110,24 +111,41 @@ async function writeTierSoldIfUnchanged(tx, eventId, previousTiers, nextTiers) {
   return result.count === 1;
 }
 
-function ticketPayoutAmounts(amount, metadata) {
-  const grossZar = Number(amount || 0);
+function roundPayoutZar(n) {
+  return Math.round((Number(n) || 0) * 100) / 100;
+}
+
+/**
+ * Venue share for a ticket charge. `amount` is the Paystack total minus the SEC service fee.
+ * Declared metadata is used only when it does not pay the venue more than that charge.
+ */
+export function ticketPayoutAmounts(amount, metadata) {
+  const grossZar = roundPayoutZar(amount);
   let eSec;
   let eRec;
-  if (metadata?.platform_fee_zar != null && metadata?.venue_share_zar != null) {
-    eSec = Math.round(Number(metadata.platform_fee_zar) * 100) / 100;
-    eRec = Math.round(Number(metadata.venue_share_zar) * 100) / 100;
-  } else if (
+  const hasDeclared = metadata?.platform_fee_zar != null && metadata?.venue_share_zar != null;
+  if (hasDeclared) {
+    eSec = roundPayoutZar(metadata.platform_fee_zar);
+    eRec = roundPayoutZar(metadata.venue_share_zar);
+    if (roundPayoutZar(eSec + eRec) - grossZar > 0.02) {
+      eSec = undefined;
+      eRec = undefined;
+    }
+  }
+  if (eSec == null && (
     metadata?.ticket_subtotal_zar != null
     || metadata?.menu_zar != null
     || metadata?.menu_total_zar != null
-  ) {
+  )) {
     const ticketSub = Number(metadata.ticket_subtotal_zar ?? grossZar) || 0;
     const menuSub = Number(metadata.menu_total_zar ?? metadata.menu_zar ?? 0) || 0;
-    const split = splitTicketCheckoutAmounts(ticketSub, menuSub);
-    eSec = split.secAmount;
-    eRec = split.recipientAmount;
-  } else {
+    if (roundPayoutZar(ticketSub + menuSub) - grossZar <= 0.02) {
+      const split = splitTicketCheckoutAmounts(ticketSub, menuSub);
+      eSec = split.secAmount;
+      eRec = split.recipientAmount;
+    }
+  }
+  if (eSec == null) {
     const split = splitTicketGross(grossZar);
     eSec = split.secAmount;
     eRec = split.recipientAmount;
@@ -253,6 +271,30 @@ export async function issueEventTicketsFromPayment(db, {
     return { issued: 0, skipped: true, reason: 'tier_not_found' };
   }
 
+  const menuItems = parseTicketMenuItems(metadata);
+  const checkout = await computeTicketCheckout(db, {
+    eventId: event.id,
+    ticketTierName: ticketTier,
+    quantity: qty,
+    selectedMenuItems: menuItems,
+    userId,
+  });
+  const requiredNet = checkout.ok
+    ? checkout.subtotal
+    : (menuItems.length ? null : roundPayoutZar(Number(tierRow.price) * qty));
+  if (requiredNet == null) {
+    logger.warn('issueEventTickets: could not price checkout', { eventId, ticketTier, reference, error: checkout.error });
+    return { issued: 0, skipped: true, reason: 'price_check_failed', error: checkout.error };
+  }
+  if (roundPayoutZar(amount) + 0.02 < roundPayoutZar(requiredNet)) {
+    logger.warn('issueEventTickets: paid amount below ticket price', {
+      reference,
+      amount,
+      requiredNet,
+    });
+    return { issued: 0, skipped: true, reason: 'underpaid' };
+  }
+
   const toIssue = qty - existingCount;
   const soldIncrement = skipSoldUpdate ? 0 : toIssue;
 
@@ -272,7 +314,6 @@ export async function issueEventTicketsFromPayment(db, {
     holderNames = [];
   }
 
-  const menuItems = parseTicketMenuItems(metadata);
   const ticketPromoterId = promoterUserIdFromMetadata(metadata);
   const locParts = [
     event.locationAddress || event.venue?.address,

@@ -245,6 +245,8 @@ export async function cancelLoginOtp(loginChallengeToken) {
   return apiPost('/api/auth/cancel-login-otp', { loginChallengeToken }, { skipAuth: true });
 }
 
-export async function resendVerificationEmail(email) {
-  return apiPost('/api/auth/resend-verification', { email: email.trim().toLowerCase() }, { skipAuth: true });
+export async function resendVerificationEmail(email, role) {
+  const body = { email: email.trim().toLowerCase() };
+  if (role === 'USER' || role === 'VENUE') body.role = role;
+  return apiPost('/api/auth/resend-verification', body, { skipAuth: true });
 }

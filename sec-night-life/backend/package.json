@@ -27,7 +27,8 @@
     "db:migrate-preprod": "node scripts/run-preprod-migration.js",
     "db:delete-user-email": "node scripts/delete-users-by-email.mjs",
     "db:cleanup-draft-hosted-tables": "node scripts/cleanup-unpaid-draft-hosted-tables.mjs",
-    "test": "node --test src/lib/*.test.js"
+    "test": "node --test src/lib/*.test.js",
+    "verify:settled-balance": "node scripts/verify-settled-balance.mjs"
   },
   "dependencies": {
     "@neondatabase/serverless": "^0.10.0",
